@@ -73,6 +73,8 @@ class MuxingSession extends EventEmitter {
   private tsWatcher: FSWatcher
   private masterWatcher: FSWatcher
 
+  private aborted = false
+
   private readonly isAbleToUploadVideoWithCache = memoizee((userId: number) => {
     return isAbleToUploadVideo(userId, 1000)
   }, { maxAge: MEMOIZE_TTL.LIVE_ABLE_TO_UPLOAD })
@@ -176,6 +178,7 @@ class MuxingSession extends EventEmitter {
   abort () {
     if (!this.ffmpegCommand) return
 
+    this.aborted = true
     this.ffmpegCommand.kill('SIGINT')
   }
 
@@ -280,6 +283,7 @@ class MuxingSession extends EventEmitter {
 
   private async isQuotaExceeded (segmentPath: string) {
     if (this.saveReplay !== true) return false
+    if (this.aborted) return false
 
     try {
       const segmentStat = await stat(segmentPath)
@@ -339,7 +343,11 @@ class MuxingSession extends EventEmitter {
       if (this.saveReplay) {
         await this.addSegmentToReplay(previousSegment)
       }
-    }).catch(err => logger.error('Cannot process segments', { err, ...this.lTags() }))
+    }).catch(err => {
+      if (this.aborted) return
+
+      logger.error('Cannot process segments', { err, ...this.lTags() })
+    })
   }
 
   private hasClientSocketInBadHealth (sessionId: string) {

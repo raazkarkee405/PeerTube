@@ -338,19 +338,19 @@ export class VideoService {
                )
   }
 
-  setVideoLike (id: number) {
+  setVideoLike (id: string) {
     return this.setVideoRate(id, 'like')
   }
 
-  setVideoDislike (id: number) {
+  setVideoDislike (id: string) {
     return this.setVideoRate(id, 'dislike')
   }
 
-  unsetVideoLike (id: number) {
+  unsetVideoLike (id: string) {
     return this.setVideoRate(id, 'none')
   }
 
-  getUserVideoRating (id: number) {
+  getUserVideoRating (id: string) {
     const url = UserService.BASE_USERS_URL + 'me/videos/' + id + '/rating'
 
     return this.authHttp.get<UserVideoRate>(url)
@@ -438,14 +438,14 @@ export class VideoService {
 
     if (skipCount) newParams = newParams.set('skipCount', skipCount + '')
 
-    if (isLocal) newParams = newParams.set('isLocal', isLocal)
-    if (include) newParams = newParams.set('include', include)
-    if (isLive) newParams = newParams.set('isLive', isLive)
-    if (nsfw) newParams = newParams.set('nsfw', nsfw)
-    if (nsfwPolicy) newParams = newParams.set('nsfw', this.nsfwPolicyToParam(nsfwPolicy))
-    if (languageOneOf) newParams = this.restService.addArrayParams(newParams, 'languageOneOf', languageOneOf)
-    if (categoryOneOf) newParams = this.restService.addArrayParams(newParams, 'categoryOneOf', categoryOneOf)
-    if (privacyOneOf) newParams = this.restService.addArrayParams(newParams, 'privacyOneOf', privacyOneOf)
+    if (isLocal !== undefined) newParams = newParams.set('isLocal', isLocal)
+    if (include !== undefined) newParams = newParams.set('include', include)
+    if (isLive !== undefined) newParams = newParams.set('isLive', isLive)
+    if (nsfw !== undefined) newParams = newParams.set('nsfw', nsfw)
+    if (nsfwPolicy !== undefined) newParams = newParams.set('nsfw', this.nsfwPolicyToParam(nsfwPolicy))
+    if (languageOneOf !== undefined) newParams = this.restService.addArrayParams(newParams, 'languageOneOf', languageOneOf)
+    if (categoryOneOf !== undefined) newParams = this.restService.addArrayParams(newParams, 'categoryOneOf', categoryOneOf)
+    if (privacyOneOf !== undefined) newParams = this.restService.addArrayParams(newParams, 'privacyOneOf', privacyOneOf)
 
     return newParams
   }
@@ -466,7 +466,7 @@ export class VideoService {
     }
   }
 
-  private setVideoRate (id: number, rateType: UserVideoRateType) {
+  private setVideoRate (id: string, rateType: UserVideoRateType) {
     const url = `${VideoService.BASE_VIDEO_URL}/${id}/rate`
     const body: UserVideoRateUpdate = {
       rating: rateType

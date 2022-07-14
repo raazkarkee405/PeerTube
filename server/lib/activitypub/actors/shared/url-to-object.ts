@@ -11,12 +11,12 @@ async function fetchRemoteActor (actorUrl: string): Promise<{ statusCode: number
 
   if (sanitizeAndCheckActorObject(body) === false) {
     logger.debug('Remote actor JSON is not valid.', { actorJSON: body })
-    return { actorObject: undefined, statusCode: statusCode }
+    return { actorObject: undefined, statusCode }
   }
 
   if (checkUrlsSameHost(body.id, actorUrl) !== true) {
     logger.warn('Actor url %s has not the same host than its AP id %s', actorUrl, body.id)
-    return { actorObject: undefined, statusCode: statusCode }
+    return { actorObject: undefined, statusCode }
   }
 
   return {
@@ -47,7 +47,7 @@ async function fetchActorTotalItems (url: string) {
 
     return body.totalItems || 0
   } catch (err) {
-    logger.warn('Cannot fetch remote actor count %s.', url, { err })
+    logger.info('Cannot fetch remote actor count %s.', url, { err })
     return 0
   }
 }

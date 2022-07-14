@@ -174,7 +174,24 @@ log:
     max_files: 20
   anonymize_ip: false
   log_ping_requests: true
+  log_tracker_unknown_infohash: true
   prettify_sql: false
+
+# Highly experimental support of Open Telemetry
+open_telemetry:
+  metrics:
+    enabled: false
+
+    # Create a prometheus exporter server on this port so prometheus server can scrape PeerTube metrics
+    prometheus_exporter:
+      port: 9091
+
+  tracing:
+    enabled: false
+
+    # Send traces to a Jaeger compatible endpoint
+    jaeger_exporter:
+      endpoint: ''
 
 trending:
   videos:
@@ -494,11 +511,11 @@ import:
         # Examples:
         #   * https://api.github.com/repos/ytdl-org/youtube-dl/releases
         #   * https://api.github.com/repos/yt-dlp/yt-dlp/releases
-        url: 'https://yt-dl.org/downloads/latest/youtube-dl'
+        #   * https://yt-dl.org/downloads/latest/youtube-dl
+        url: 'https://api.github.com/repos/yt-dlp/yt-dlp/releases'
 
-        # youtube-dl binary name
-        # yt-dlp is also supported
-        name: 'youtube-dl'
+        # Release binary name: 'yt-dlp' or 'youtube-dl'
+        name: 'yt-dlp'
 
         # Path to the python binary to execute for youtube-dl or yt-dlp
         python_path: '/usr/bin/python3'

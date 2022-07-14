@@ -4,14 +4,8 @@
 </h1>
 
 <p-table
-    [value]="videoChangeOwnerships"
-    [lazy]="true"
-    [paginator]="totalRecords > 0"
-    [totalRecords]="totalRecords"
-    [rows]="rowsPerPage"
-    [sortField]="sort.field"
-    [sortOrder]="sort.order"
-    (onLazyLoad)="loadLazy($event)"
+  [value]="videoChangeOwnerships" [lazy]="true" [paginator]="totalRecords > 0" [totalRecords]="totalRecords" [rows]="rowsPerPage"
+  [first]="pagination.start" [sortField]="sort.field" [sortOrder]="sort.order" (onLazyLoad)="loadLazy($event)"
 >
   <ng-template pTemplate="header">
     <tr>
@@ -37,7 +31,7 @@
       <td>
         <a [href]="videoChangeOwnership.initiatorAccount.url" i18n-title title="Open account in a new tab" target="_blank" rel="noopener noreferrer">
           <div class="chip two-lines">
-            <my-actor-avatar [account]="videoChangeOwnership.initiatorAccount" size="32"></my-actor-avatar>
+            <my-actor-avatar [actor]="videoChangeOwnership.initiatorAccount" actorType="account" size="32"></my-actor-avatar>
             <div>
               {{ videoChangeOwnership.initiatorAccount.displayName }}
               <span class="muted">{{ videoChangeOwnership.initiatorAccount.nameWithHost }}</span>

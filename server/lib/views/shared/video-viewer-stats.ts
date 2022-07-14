@@ -1,5 +1,5 @@
 import { Transaction } from 'sequelize/types'
-import { isTestInstance } from '@server/helpers/core-utils'
+import { isTestOrDevInstance } from '@server/helpers/core-utils'
 import { GeoIP } from '@server/helpers/geo-ip'
 import { logger, loggerTagsFactory } from '@server/helpers/logger'
 import { MAX_LOCAL_VIEWER_WATCH_SECTIONS, VIEW_LIFETIME } from '@server/initializers/constants'
@@ -104,7 +104,12 @@ export class VideoViewerStats {
       })
     } else {
       const lastSection = stats.watchSections[stats.watchSections.length - 1]
-      lastSection.end = currentTime
+
+      if (lastSection.start > currentTime) {
+        logger.warn('Invalid end watch section %d. Last start record was at %d.', currentTime, lastSection.start)
+      } else {
+        lastSection.end = currentTime
+      }
     }
 
     stats.watchTime = this.buildWatchTimeFromSections(stats.watchSections)
@@ -118,7 +123,7 @@ export class VideoViewerStats {
     if (this.processingViewersStats) return
     this.processingViewersStats = true
 
-    if (!isTestInstance()) logger.info('Processing viewer statistics.', lTags())
+    if (!isTestOrDevInstance()) logger.info('Processing viewer statistics.', lTags())
 
     const now = new Date().getTime()
 

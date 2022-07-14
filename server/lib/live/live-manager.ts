@@ -27,7 +27,6 @@ import { JobQueue } from '../job-queue'
 import { generateHLSMasterPlaylistFilename, generateHlsSha256SegmentsFilename, getLiveReplayBaseDirectory } from '../paths'
 import { PeerTubeSocket } from '../peertube-socket'
 import { LiveQuotaStore } from './live-quota-store'
-import { LiveSegmentShaStore } from './live-segment-sha-store'
 import { cleanupPermanentLive } from './live-utils'
 import { MuxingSession } from './shared'
 
@@ -219,9 +218,7 @@ class LiveManager {
       return this.abortSession(sessionId)
     }
 
-    // Cleanup old potential live files (could happen with a permanent live)
-    LiveSegmentShaStore.Instance.cleanupShaSegments(video.uuid)
-
+    // Cleanup old potential live (could happen with a permanent live)
     const oldStreamingPlaylist = await VideoStreamingPlaylistModel.loadHLSPlaylistByVideo(video.id)
     if (oldStreamingPlaylist) {
       if (!videoLive.permanentLive) throw new Error('Found previous session in a non permanent live: ' + video.uuid)
@@ -354,7 +351,7 @@ class LiveManager {
     const videoId = live.videoId
 
     try {
-      const video = await VideoModel.loadAndPopulateAccountAndServerAndTags(videoId)
+      const video = await VideoModel.loadFull(videoId)
 
       logger.info('Will publish and federate live %s.', video.url, localLTags)
 
@@ -393,12 +390,12 @@ class LiveManager {
     const { videoId, liveSession: liveSessionArg, cleanupNow = false } = options
 
     try {
-      const fullVideo = await VideoModel.loadAndPopulateAccountAndServerAndTags(videoId)
+      const fullVideo = await VideoModel.loadFull(videoId)
       if (!fullVideo) return
 
       const live = await VideoLiveModel.loadByVideoId(fullVideo.id)
 
-      const liveSession = liveSessionArg ?? await VideoLiveSessionModel.findCurrentSessionOf(fullVideo.id)
+      const liveSession = liveSessionArg ?? await VideoLiveSessionModel.findLatestSessionOf(fullVideo.id)
 
       // On server restart during a live
       if (!liveSession.endDate) {

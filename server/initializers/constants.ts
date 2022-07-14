@@ -19,7 +19,7 @@ import { NSFWPolicyType } from '../../shared/models/videos/nsfw-policy.type'
 import { VideoPlaylistPrivacy } from '../../shared/models/videos/playlist/video-playlist-privacy.model'
 import { VideoPlaylistType } from '../../shared/models/videos/playlist/video-playlist-type.model'
 // Do not use barrels, remain constants as independent as possible
-import { isTestInstance, parseDurationToMs, sanitizeHost, sanitizeUrl } from '../helpers/core-utils'
+import { isTestInstance, isTestOrDevInstance, parseDurationToMs, sanitizeHost, sanitizeUrl } from '../helpers/core-utils'
 import { CONFIG, registerConfigChangedHandler } from './config'
 
 // ---------------------------------------------------------------------------
@@ -736,7 +736,8 @@ const MEMOIZE_TTL = {
   INFO_HASH_EXISTS: 1000 * 3600 * 12, // 12 hours
   VIDEO_DURATION: 1000 * 10, // 10 seconds
   LIVE_ABLE_TO_UPLOAD: 1000 * 60, // 1 minute
-  LIVE_CHECK_SOCKET_HEALTH: 1000 * 60 // 1 minute
+  LIVE_CHECK_SOCKET_HEALTH: 1000 * 60, // 1 minute
+  GET_STATS_FOR_OPEN_TELEMETRY_METRICS: 1000 * 60 // 1 minute
 }
 
 const MEMOIZE_LENGTH = {
@@ -744,8 +745,15 @@ const MEMOIZE_LENGTH = {
   VIDEO_DURATION: 200
 }
 
-const QUEUE_CONCURRENCY = {
-  ACTOR_PROCESS_IMAGE: 3
+const WORKER_THREADS = {
+  DOWNLOAD_IMAGE: {
+    CONCURRENCY: 3,
+    MAX_THREADS: 1
+  },
+  PROCESS_IMAGE: {
+    CONCURRENCY: 1,
+    MAX_THREADS: 5
+  }
 }
 
 const REDUNDANCY = {
@@ -814,57 +822,62 @@ const STATS_TIMESERIE = {
 // ---------------------------------------------------------------------------
 
 // Special constants for a test instance
-if (isTestInstance() === true && process.env.PRODUCTION_CONSTANTS !== 'true') {
-  PRIVATE_RSA_KEY_SIZE = 1024
+if (process.env.PRODUCTION_CONSTANTS !== 'true') {
+  if (isTestOrDevInstance()) {
+    PRIVATE_RSA_KEY_SIZE = 1024
 
-  ACTOR_FOLLOW_SCORE.BASE = 20
+    ACTOR_FOLLOW_SCORE.BASE = 20
 
-  REMOTE_SCHEME.HTTP = 'http'
-  REMOTE_SCHEME.WS = 'ws'
+    REMOTE_SCHEME.HTTP = 'http'
+    REMOTE_SCHEME.WS = 'ws'
 
-  STATIC_MAX_AGE.SERVER = '0'
+    STATIC_MAX_AGE.SERVER = '0'
 
-  ACTIVITY_PUB.COLLECTION_ITEMS_PER_PAGE = 2
-  ACTIVITY_PUB.ACTOR_REFRESH_INTERVAL = 10 * 1000 // 10 seconds
-  ACTIVITY_PUB.VIDEO_REFRESH_INTERVAL = 10 * 1000 // 10 seconds
-  ACTIVITY_PUB.VIDEO_PLAYLIST_REFRESH_INTERVAL = 10 * 1000 // 10 seconds
+    SCHEDULER_INTERVALS_MS.ACTOR_FOLLOW_SCORES = 1000
+    SCHEDULER_INTERVALS_MS.REMOVE_OLD_JOBS = 10000
+    SCHEDULER_INTERVALS_MS.REMOVE_OLD_HISTORY = 5000
+    SCHEDULER_INTERVALS_MS.REMOVE_OLD_VIEWS = 5000
+    SCHEDULER_INTERVALS_MS.UPDATE_VIDEOS = 5000
+    SCHEDULER_INTERVALS_MS.AUTO_FOLLOW_INDEX_INSTANCES = 5000
+    SCHEDULER_INTERVALS_MS.UPDATE_INBOX_STATS = 5000
+    SCHEDULER_INTERVALS_MS.CHECK_PEERTUBE_VERSION = 2000
 
-  CONSTRAINTS_FIELDS.ACTORS.IMAGE.FILE_SIZE.max = 100 * 1024 // 100KB
-  CONSTRAINTS_FIELDS.VIDEOS.IMAGE.FILE_SIZE.max = 400 * 1024 // 400KB
+    REPEAT_JOBS['videos-views-stats'] = { every: 5000 }
 
-  SCHEDULER_INTERVALS_MS.ACTOR_FOLLOW_SCORES = 1000
-  SCHEDULER_INTERVALS_MS.REMOVE_OLD_JOBS = 10000
-  SCHEDULER_INTERVALS_MS.REMOVE_OLD_HISTORY = 5000
-  SCHEDULER_INTERVALS_MS.REMOVE_OLD_VIEWS = 5000
-  SCHEDULER_INTERVALS_MS.UPDATE_VIDEOS = 5000
-  SCHEDULER_INTERVALS_MS.AUTO_FOLLOW_INDEX_INSTANCES = 5000
-  SCHEDULER_INTERVALS_MS.UPDATE_INBOX_STATS = 5000
-  SCHEDULER_INTERVALS_MS.CHECK_PEERTUBE_VERSION = 2000
+    REPEAT_JOBS['activitypub-cleaner'] = { every: 5000 }
+    AP_CLEANER.PERIOD = 5000
 
-  REPEAT_JOBS['videos-views-stats'] = { every: 5000 }
+    REDUNDANCY.VIDEOS.RANDOMIZED_FACTOR = 1
 
-  REPEAT_JOBS['activitypub-cleaner'] = { every: 5000 }
-  AP_CLEANER.PERIOD = 5000
+    CONTACT_FORM_LIFETIME = 1000 // 1 second
 
-  REDUNDANCY.VIDEOS.RANDOMIZED_FACTOR = 1
+    JOB_ATTEMPTS['email'] = 1
 
-  VIEW_LIFETIME.VIEWER_COUNTER = 1000 * 5 // 5 second
-  VIEW_LIFETIME.VIEWER_STATS = 1000 * 5 // 5 second
-  CONTACT_FORM_LIFETIME = 1000 // 1 second
+    FILES_CACHE.VIDEO_CAPTIONS.MAX_AGE = 3000
+    MEMOIZE_TTL.OVERVIEWS_SAMPLE = 3000
+    MEMOIZE_TTL.LIVE_ABLE_TO_UPLOAD = 3000
+    OVERVIEWS.VIDEOS.SAMPLE_THRESHOLD = 2
 
-  JOB_ATTEMPTS['email'] = 1
+    PLUGIN_EXTERNAL_AUTH_TOKEN_LIFETIME = 5000
+  }
 
-  FILES_CACHE.VIDEO_CAPTIONS.MAX_AGE = 3000
-  MEMOIZE_TTL.OVERVIEWS_SAMPLE = 3000
-  MEMOIZE_TTL.LIVE_ABLE_TO_UPLOAD = 3000
-  OVERVIEWS.VIDEOS.SAMPLE_THRESHOLD = 2
+  if (isTestInstance()) {
+    ACTIVITY_PUB.COLLECTION_ITEMS_PER_PAGE = 2
+    ACTIVITY_PUB.ACTOR_REFRESH_INTERVAL = 10 * 1000 // 10 seconds
+    ACTIVITY_PUB.VIDEO_REFRESH_INTERVAL = 10 * 1000 // 10 seconds
+    ACTIVITY_PUB.VIDEO_PLAYLIST_REFRESH_INTERVAL = 10 * 1000 // 10 seconds
 
-  PLUGIN_EXTERNAL_AUTH_TOKEN_LIFETIME = 5000
+    CONSTRAINTS_FIELDS.ACTORS.IMAGE.FILE_SIZE.max = 100 * 1024 // 100KB
+    CONSTRAINTS_FIELDS.VIDEOS.IMAGE.FILE_SIZE.max = 400 * 1024 // 400KB
 
-  VIDEO_LIVE.CLEANUP_DELAY = 5000
-  VIDEO_LIVE.SEGMENT_TIME_SECONDS.DEFAULT_LATENCY = 2
-  VIDEO_LIVE.SEGMENT_TIME_SECONDS.SMALL_LATENCY = 1
-  VIDEO_LIVE.EDGE_LIVE_DELAY_SEGMENTS_NOTIFICATION = 1
+    VIEW_LIFETIME.VIEWER_COUNTER = 1000 * 5 // 5 second
+    VIEW_LIFETIME.VIEWER_STATS = 1000 * 5 // 5 second
+
+    VIDEO_LIVE.CLEANUP_DELAY = getIntEnv('PEERTUBE_TEST_CONSTANTS_VIDEO_LIVE_CLEANUP_DELAY') ?? 5000
+    VIDEO_LIVE.SEGMENT_TIME_SECONDS.DEFAULT_LATENCY = 2
+    VIDEO_LIVE.SEGMENT_TIME_SECONDS.SMALL_LATENCY = 1
+    VIDEO_LIVE.EDGE_LIVE_DELAY_SEGMENTS_NOTIFICATION = 1
+  }
 }
 
 updateWebserverUrls()
@@ -955,7 +968,7 @@ export {
   VIDEO_PRIVACIES,
   VIDEO_LICENCES,
   VIDEO_STATES,
-  QUEUE_CONCURRENCY,
+  WORKER_THREADS,
   VIDEO_RATE_TYPES,
   JOB_PRIORITY,
   VIDEO_TRANSCODING_FPS,
@@ -1158,6 +1171,7 @@ function buildLanguages () {
   // Override Occitan label
   languages['oc'] = 'Occitan'
   languages['el'] = 'Greek'
+  languages['tok'] = 'Toki Pona'
 
   // Chinese languages
   languages['zh-Hans'] = 'Simplified Chinese'
@@ -1168,4 +1182,10 @@ function buildLanguages () {
 
 function generateContentHash () {
   return randomBytes(20).toString('hex')
+}
+
+function getIntEnv (path: string) {
+  if (process.env[path]) return parseInt(process.env[path])
+
+  return undefined
 }

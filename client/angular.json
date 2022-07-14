@@ -77,6 +77,10 @@
             "translation": "src/locale/angular.sq.xlf",
             "baseHref": "/client/sq/"
           },
+          "hr": {
+            "translation": "src/locale/angular.hr.xlf",
+            "baseHref": "/client/hr/"
+          },
           "zh-Hans": {
             "translation": "src/locale/angular.zh-Hans-CN.xlf",
             "baseHref": "/client/zh-Hans-CN/"
@@ -132,6 +136,10 @@
           "nb": {
             "translation": "src/locale/angular.nb-NO.xlf",
             "baseHref": "/client/nb-NO/"
+          },
+          "tok": {
+            "translation": "src/locale/angular.tok.xlf",
+            "baseHref": "/client/tok/"
           },
           "nn": {
             "translation": "src/locale/angular.nn.xlf",

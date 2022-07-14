@@ -1,3 +1,4 @@
+import { pick } from 'lodash'
 import { Sequelize, Transaction } from 'sequelize'
 import { AbstractVideoQueryBuilder } from './shared/abstract-video-query-builder'
 import { VideoFileQueryBuilder } from './shared/video-file-query-builder'
@@ -12,7 +13,7 @@ import { VideoTableAttributes } from './shared/video-table-attributes'
 
 export type GetType =
   'api' |
-  'full-light' |
+  'full' |
   'account-blacklist-files' |
   'all-files' |
   'thumbnails' |
@@ -39,7 +40,7 @@ export class VideoModelGetQueryBuilder {
 
   private readonly videoModelBuilder: VideoModelBuilder
 
-  private static readonly videoFilesInclude = new Set<GetType>([ 'api', 'full-light', 'account-blacklist-files', 'all-files' ])
+  private static readonly videoFilesInclude = new Set<GetType>([ 'api', 'full', 'account-blacklist-files', 'all-files' ])
 
   constructor (protected readonly sequelize: Sequelize) {
     this.videoQueryBuilder = new VideosModelGetQuerySubBuilder(sequelize)
@@ -50,15 +51,21 @@ export class VideoModelGetQueryBuilder {
   }
 
   async queryVideo (options: BuildVideoGetQueryOptions) {
+    const fileQueryOptions = {
+      ...pick(options, [ 'id', 'url', 'transaction', 'logging' ]),
+
+      includeRedundancy: this.shouldIncludeRedundancies(options)
+    }
+
     const [ videoRows, webtorrentFilesRows, streamingPlaylistFilesRows ] = await Promise.all([
       this.videoQueryBuilder.queryVideos(options),
 
       VideoModelGetQueryBuilder.videoFilesInclude.has(options.type)
-        ? this.webtorrentFilesQueryBuilder.queryWebTorrentVideos(options)
+        ? this.webtorrentFilesQueryBuilder.queryWebTorrentVideos(fileQueryOptions)
         : Promise.resolve(undefined),
 
       VideoModelGetQueryBuilder.videoFilesInclude.has(options.type)
-        ? this.streamingPlaylistFilesQueryBuilder.queryStreamingPlaylistVideos(options)
+        ? this.streamingPlaylistFilesQueryBuilder.queryStreamingPlaylistVideos(fileQueryOptions)
         : Promise.resolve(undefined)
     ])
 
@@ -76,6 +83,10 @@ export class VideoModelGetQueryBuilder {
 
     return videos[0]
   }
+
+  private shouldIncludeRedundancies (options: BuildVideoGetQueryOptions) {
+    return options.type === 'api'
+  }
 }
 
 export class VideosModelGetQuerySubBuilder extends AbstractVideoQueryBuilder {
@@ -85,16 +96,16 @@ export class VideosModelGetQuerySubBuilder extends AbstractVideoQueryBuilder {
   protected streamingPlaylistFilesQuery: string
 
   private static readonly trackersInclude = new Set<GetType>([ 'api' ])
-  private static readonly liveInclude = new Set<GetType>([ 'api', 'full-light' ])
-  private static readonly scheduleUpdateInclude = new Set<GetType>([ 'api', 'full-light' ])
-  private static readonly tagsInclude = new Set<GetType>([ 'api', 'full-light' ])
-  private static readonly userHistoryInclude = new Set<GetType>([ 'api', 'full-light' ])
-  private static readonly accountInclude = new Set<GetType>([ 'api', 'full-light', 'account-blacklist-files' ])
+  private static readonly liveInclude = new Set<GetType>([ 'api', 'full' ])
+  private static readonly scheduleUpdateInclude = new Set<GetType>([ 'api', 'full' ])
+  private static readonly tagsInclude = new Set<GetType>([ 'api', 'full' ])
+  private static readonly userHistoryInclude = new Set<GetType>([ 'api', 'full' ])
+  private static readonly accountInclude = new Set<GetType>([ 'api', 'full', 'account-blacklist-files' ])
   private static readonly ownerUserInclude = new Set<GetType>([ 'blacklist-rights' ])
 
   private static readonly blacklistedInclude = new Set<GetType>([
     'api',
-    'full-light',
+    'full',
     'account-blacklist-files',
     'thumbnails-blacklist',
     'blacklist-rights'
@@ -102,7 +113,7 @@ export class VideosModelGetQuerySubBuilder extends AbstractVideoQueryBuilder {
 
   private static readonly thumbnailsInclude = new Set<GetType>([
     'api',
-    'full-light',
+    'full',
     'account-blacklist-files',
     'all-files',
     'thumbnails',

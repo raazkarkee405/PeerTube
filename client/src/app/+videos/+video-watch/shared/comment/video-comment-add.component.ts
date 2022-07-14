@@ -45,6 +45,8 @@ export class VideoCommentAddComponent extends FormReactive implements OnChanges,
   addingComment = false
   addingCommentButtonValue: string
 
+  private emojiMarkupList: { emoji: string, name: string }[]
+
   constructor (
     protected formValidatorService: FormValidatorService,
     private notifier: Notifier,
@@ -54,21 +56,6 @@ export class VideoCommentAddComponent extends FormReactive implements OnChanges,
     @Inject(LOCALE_ID) private localeId: string
   ) {
     super()
-  }
-
-  get emojiMarkupList () {
-    const emojiMarkupObjectList = require('markdown-it-emoji/lib/data/light.json')
-
-    // Populate emoji-markup-list from object to array to avoid keys alphabetical order
-    const emojiMarkupArrayList = []
-    for (const emojiMarkupName in emojiMarkupObjectList) {
-      if (emojiMarkupName) {
-        const emoji = emojiMarkupObjectList[emojiMarkupName]
-        emojiMarkupArrayList.push([ emoji, emojiMarkupName ])
-      }
-    }
-
-    return emojiMarkupArrayList
   }
 
   ngOnInit () {
@@ -94,6 +81,20 @@ export class VideoCommentAddComponent extends FormReactive implements OnChanges,
     if (changes.textValue?.currentValue && changes.textValue.currentValue !== changes.textValue.previousValue) {
       this.patchTextValue(changes.textValue.currentValue, true)
     }
+  }
+
+  getEmojiMarkupList () {
+    if (this.emojiMarkupList) return this.emojiMarkupList
+
+    const emojiMarkupObjectList = require('markdown-it-emoji/lib/data/light.json')
+
+    this.emojiMarkupList = []
+    for (const name of Object.keys(emojiMarkupObjectList)) {
+      const emoji = emojiMarkupObjectList[name]
+      this.emojiMarkupList.push({ emoji, name })
+    }
+
+    return this.emojiMarkupList
   }
 
   onValidKey () {
@@ -174,14 +175,20 @@ export class VideoCommentAddComponent extends FormReactive implements OnChanges,
     return getLocaleDirection(this.localeId) === 'rtl'
   }
 
+  getAvatarActorType () {
+    if (this.user) return 'account'
+
+    return 'unlogged'
+  }
+
   private addCommentReply (commentCreate: VideoCommentCreate) {
     return this.videoCommentService
-      .addCommentReply(this.video.id, this.parentComment.id, commentCreate)
+      .addCommentReply(this.video.uuid, this.parentComment.id, commentCreate)
   }
 
   private addCommentThread (commentCreate: VideoCommentCreate) {
     return this.videoCommentService
-      .addCommentThread(this.video.id, commentCreate)
+      .addCommentThread(this.video.uuid, commentCreate)
   }
 
   private initTextValue () {

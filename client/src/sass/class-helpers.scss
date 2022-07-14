@@ -5,10 +5,10 @@
 
 .link-orange {
   color: pvar(--mainForegroundColor);
-  font-weight: $font-bold;
-  border-bottom: 0.19em solid pvar(--mainColor);
+  font-weight: $font-semibold;
+  border-bottom: 0.18em solid pvar(--mainColor);
   display: inline-block;
-  line-height: 1.2;
+  line-height: 1.1;
 
   &:hover {
     color: pvar(--mainForegroundColor);
@@ -27,8 +27,16 @@
   @include peertube-button;
 }
 
+.peertube-button-big {
+  @include peertube-button-big;
+}
+
 .peertube-button-link {
   @include peertube-button-link;
+}
+
+.peertube-button-big-link {
+  @include peertube-button-big-link;
 }
 
 .orange-button {

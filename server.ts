@@ -1,4 +1,7 @@
 // ----------- Node modules -----------
+import { registerOpentelemetryTracing } from './server/lib/opentelemetry/tracing'
+registerOpentelemetryTracing()
+
 import express from 'express'
 import morgan, { token } from 'morgan'
 import cors from 'cors'
@@ -47,6 +50,12 @@ checkConfig()
 // Trust our proxy (IP forwarding...)
 app.set('trust proxy', CONFIG.TRUST_PROXY)
 
+app.use((_req, res, next) => {
+  res.locals.requestStart = Date.now()
+
+  return next()
+})
+
 // Security middleware
 import { baseCSP } from './server/middlewares/csp'
 
@@ -86,9 +95,11 @@ import { VideosPreviewCache, VideosCaptionCache } from './server/lib/files-cache
 import {
   activityPubRouter,
   apiRouter,
+  miscRouter,
   clientsRouter,
   feedsRouter,
   staticRouter,
+  wellKnownRouter,
   lazyStaticRouter,
   servicesRouter,
   liveRouter,
@@ -125,7 +136,8 @@ import { HttpStatusCode } from './shared/models/http/http-error-codes'
 import { VideosTorrentCache } from '@server/lib/files-cache/videos-torrent-cache'
 import { ServerConfigManager } from '@server/lib/server-config-manager'
 import { VideoViewsManager } from '@server/lib/views/video-views-manager'
-import { isTestInstance } from './server/helpers/core-utils'
+import { isTestOrDevInstance } from './server/helpers/core-utils'
+import { OpenTelemetryMetrics } from '@server/lib/opentelemetry/metrics'
 
 // ----------- Command line -----------
 
@@ -138,7 +150,7 @@ cli
 // ----------- App -----------
 
 // Enable CORS for develop
-if (isTestInstance()) {
+if (isTestOrDevInstance()) {
   app.use(cors({
     origin: '*',
     exposedHeaders: 'Retry-After',
@@ -194,6 +206,10 @@ app.use(cookieParser())
 // W3C DNT Tracking Status
 app.use(advertiseDoNotTrack)
 
+// ----------- Open Telemetry -----------
+
+OpenTelemetryMetrics.Instance.init(app)
+
 // ----------- Views, routes and static files -----------
 
 // API
@@ -217,6 +233,8 @@ app.use('/', botsRouter)
 
 // Static files
 app.use('/', staticRouter)
+app.use('/', wellKnownRouter)
+app.use('/', miscRouter)
 app.use('/', downloadRouter)
 app.use('/', lazyStaticRouter)
 
@@ -269,7 +287,7 @@ async function startApplication () {
   checkFFmpegVersion()
     .catch(err => logger.error('Cannot check ffmpeg version', { err }))
 
-  // Email initialization
+  Redis.Instance.init()
   Emailer.Instance.init()
 
   await Promise.all([
@@ -297,8 +315,8 @@ async function startApplication () {
   RemoveDanglingResumableUploadsScheduler.Instance.enable()
   VideoViewsBufferScheduler.Instance.enable()
   GeoIPUpdateScheduler.Instance.enable()
+  OpenTelemetryMetrics.Instance.registerMetrics()
 
-  Redis.Instance.init()
   PeerTubeSocket.Instance.init(server)
   VideoViewsManager.Instance.init()
 
