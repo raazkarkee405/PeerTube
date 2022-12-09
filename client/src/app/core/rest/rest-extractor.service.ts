@@ -1,13 +1,18 @@
 import { throwError as observableThrowError } from 'rxjs'
-import { Injectable } from '@angular/core'
+import { Inject, Injectable, LOCALE_ID } from '@angular/core'
 import { Router } from '@angular/router'
-import { dateToHuman } from '@app/helpers'
+import { DateFormat, dateToHuman } from '@app/helpers'
+import { logger } from '@root-helpers/logger'
 import { HttpStatusCode, ResultList } from '@shared/models'
+import { HttpHeaderResponse } from '@angular/common/http'
 
 @Injectable()
 export class RestExtractor {
 
-  constructor (private router: Router) { }
+  constructor (
+    @Inject(LOCALE_ID) private localeId: string,
+    private router: Router
+  ) { }
 
   applyToResultListData <T, A, U> (
     result: ResultList<T>,
@@ -22,13 +27,19 @@ export class RestExtractor {
     }
   }
 
-  convertResultListDateToHuman <T> (result: ResultList<T>, fieldsToConvert: string[] = [ 'createdAt' ]): ResultList<T> {
-    return this.applyToResultListData(result, this.convertDateToHuman, [ fieldsToConvert ])
+  convertResultListDateToHuman <T> (
+    result: ResultList<T>,
+    fieldsToConvert: string[] = [ 'createdAt' ],
+    format?: DateFormat
+  ): ResultList<T> {
+    return this.applyToResultListData(result, this.convertDateToHuman, [ fieldsToConvert, format ])
   }
 
-  convertDateToHuman (target: any, fieldsToConvert: string[]) {
+  convertDateToHuman (target: any, fieldsToConvert: string[], format?: DateFormat) {
     fieldsToConvert.forEach(field => {
-      target[field] = dateToHuman(target[field])
+      if (!target[field]) return
+
+      target[field] = dateToHuman(this.localeId, new Date(target[field]), format)
     })
 
     return target
@@ -46,10 +57,11 @@ export class RestExtractor {
   handleError (err: any) {
     const errorMessage = this.buildErrorMessage(err)
 
-    const errorObj: { message: string, status: string, body: string } = {
+    const errorObj: { message: string, status: string, body: string, headers: HttpHeaderResponse } = {
       message: errorMessage,
       status: undefined,
-      body: undefined
+      body: undefined,
+      headers: err.headers
     }
 
     if (err.status) {
@@ -64,7 +76,7 @@ export class RestExtractor {
     if (err.error instanceof Error) {
       // A client-side or network error occurred. Handle it accordingly.
       const errorMessage = err.error.detail || err.error.title
-      console.error('An error occurred:', errorMessage)
+      logger.error('An error occurred:', errorMessage)
 
       return errorMessage
     }
@@ -75,12 +87,12 @@ export class RestExtractor {
 
     if (err.status !== undefined) {
       const errorMessage = this.buildServerErrorMessage(err)
-      console.error(`Backend returned code ${err.status}, errorMessage is: ${errorMessage}`)
+      logger.error(`Backend returned code ${err.status}, errorMessage is: ${errorMessage}`)
 
       return errorMessage
     }
 
-    console.error(err)
+    logger.error(err)
     return err
   }
 

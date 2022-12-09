@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
 
-import 'mocha'
 import { checkBadCountPagination, checkBadSortPagination, checkBadStartPagination } from '@server/tests/shared'
 import { HttpStatusCode } from '@shared/models'
 import { cleanupTests, createSingleServer, makeGetRequest, PeerTubeServer, setAccessTokensToServers } from '@shared/server-commands'
@@ -251,11 +250,6 @@ describe('Test videos API validator', function () {
         }
 
         await updateSearchIndex(server, true, true)
-
-        {
-          const customQuery = { ...query, searchTarget: 'local' }
-          await makeGetRequest({ url: server.url, path, query: customQuery, expectedStatus: HttpStatusCode.BAD_REQUEST_400 })
-        }
 
         {
           const customQuery = { ...query, searchTarget: 'search-index' }

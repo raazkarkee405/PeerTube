@@ -7,8 +7,9 @@ import {
   isPluginDescriptionValid,
   isPluginHomepage,
   isPluginNameValid,
-  isPluginTypeValid,
-  isPluginVersionValid
+  isPluginStableOrUnstableVersionValid,
+  isPluginStableVersionValid,
+  isPluginTypeValid
 } from '../../helpers/custom-validators/plugins'
 import { getSort, throwIfNotValid } from '../utils'
 
@@ -40,12 +41,12 @@ export class PluginModel extends Model<Partial<AttributesOnly<PluginModel>>> {
   type: number
 
   @AllowNull(false)
-  @Is('PluginVersion', value => throwIfNotValid(value, isPluginVersionValid, 'version'))
+  @Is('PluginVersion', value => throwIfNotValid(value, isPluginStableOrUnstableVersionValid, 'version'))
   @Column
   version: string
 
   @AllowNull(true)
-  @Is('PluginLatestVersion', value => throwIfNotValid(value, isPluginVersionValid, 'version'))
+  @Is('PluginLatestVersion', value => throwIfNotValid(value, isPluginStableVersionValid, 'version'))
   @Column
   latestVersion: string
 
@@ -121,7 +122,7 @@ export class PluginModel extends Model<Partial<AttributesOnly<PluginModel>>> {
 
     return PluginModel.findOne(query)
       .then(p => {
-        if (!p || !p.settings || p.settings === undefined) {
+        if (!p?.settings || p.settings === undefined) {
           const registered = registeredSettings.find(s => s.name === settingName)
           if (!registered || registered.default === undefined) return undefined
 
@@ -151,7 +152,7 @@ export class PluginModel extends Model<Partial<AttributesOnly<PluginModel>>> {
         const result: SettingEntries = {}
 
         for (const name of settingNames) {
-          if (!p || !p.settings || p.settings[name] === undefined) {
+          if (!p?.settings || p.settings[name] === undefined) {
             const registered = registeredSettings.find(s => s.name === name)
 
             if (registered?.default !== undefined) {

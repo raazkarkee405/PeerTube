@@ -1,5 +1,6 @@
 import debug from 'debug'
 import videojs from 'video.js'
+import { logger } from '@root-helpers/logger'
 import { isMobile } from '@root-helpers/web-browser'
 import { timeToInt } from '@shared/core-utils'
 import { VideoView, VideoViewEvent } from '@shared/models/videos'
@@ -15,13 +16,13 @@ import {
 import { PeerTubePluginOptions, VideoJSCaption } from '../../types'
 import { SettingsButton } from '../settings/settings-menu-button'
 
-const logger = debug('peertube:player:peertube')
+const debugLogger = debug('peertube:player:peertube')
 
 const Plugin = videojs.getPlugin('plugin')
 
 class PeerTubePlugin extends Plugin {
   private readonly videoViewUrl: string
-  private readonly authorizationHeader: string
+  private readonly authorizationHeader: () => string
 
   private readonly videoUUID: string
   private readonly startTime: number
@@ -51,7 +52,7 @@ class PeerTubePlugin extends Plugin {
     this.videoCaptions = options.videoCaptions
     this.initialInactivityTimeout = this.player.options_.inactivityTimeout
 
-    if (options.autoplay) this.player.addClass('vjs-has-autoplay')
+    if (options.autoplay !== false) this.player.addClass('vjs-has-autoplay')
 
     this.player.on('autoplay-failure', () => {
       this.player.removeClass('vjs-has-autoplay')
@@ -124,6 +125,32 @@ class PeerTubePlugin extends Plugin {
   }
 
   displayFatalError () {
+    this.player.loadingSpinner.hide()
+
+    const buildModal = (error: MediaError) => {
+      const localize = this.player.localize.bind(this.player)
+
+      const wrapper = document.createElement('div')
+      const header = document.createElement('h1')
+      header.innerText = localize('Failed to play video')
+      wrapper.appendChild(header)
+      const desc = document.createElement('div')
+      desc.innerText = localize('The video failed to play due to technical issues.')
+      wrapper.appendChild(desc)
+      const details = document.createElement('p')
+      details.classList.add('error-details')
+      details.innerText = error.message
+      wrapper.appendChild(details)
+
+      return wrapper
+    }
+
+    const modal = this.player.createModal(buildModal(this.player.error()), {
+      temporary: false,
+      uncloseable: true
+    })
+    modal.addClass('vjs-custom-error-display')
+
     this.player.addClass('vjs-error-display-enabled')
   }
 
@@ -142,6 +169,8 @@ class PeerTubePlugin extends Plugin {
 
     this.listenFullScreenChange()
   }
+
+  // ---------------------------------------------------------------------------
 
   private runUserViewing () {
     let lastCurrentTime = this.startTime
@@ -176,12 +205,12 @@ class PeerTubePlugin extends Plugin {
       lastCurrentTime = currentTime
 
       this.notifyUserIsWatching(currentTime, lastViewEvent)
-        .catch(err => console.error('Cannot notify user is watching.', err))
+        .catch(err => logger.error('Cannot notify user is watching.', err))
 
       lastViewEvent = undefined
 
       // Server won't save history, so save the video position in local storage
-      if (!this.authorizationHeader) {
+      if (!this.authorizationHeader()) {
         saveVideoWatchHistory(this.videoUUID, currentTime)
       }
     }, this.CONSTANTS.USER_VIEW_VIDEO_INTERVAL)
@@ -199,10 +228,12 @@ class PeerTubePlugin extends Plugin {
       'Content-type': 'application/json; charset=UTF-8'
     })
 
-    if (this.authorizationHeader) headers.set('Authorization', this.authorizationHeader)
+    if (this.authorizationHeader()) headers.set('Authorization', this.authorizationHeader())
 
     return fetch(this.videoViewUrl, { method: 'POST', body: JSON.stringify(body), headers })
   }
+
+  // ---------------------------------------------------------------------------
 
   private listenFullScreenChange () {
     this.player.on('fullscreenchange', () => {
@@ -249,7 +280,7 @@ class PeerTubePlugin extends Plugin {
     (this.player as any).cache_.inactivityTimeout = timeout
     this.player.options_.inactivityTimeout = timeout
 
-    logger('Set player inactivity to ' + timeout)
+    debugLogger('Set player inactivity to ' + timeout)
   }
 
   private initCaptions () {

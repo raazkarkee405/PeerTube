@@ -46,6 +46,8 @@ jobs:
       PGHOST: localhost
       NODE_PENDING_JOB_WAIT: 250
       ENABLE_OBJECT_STORAGE_TESTS: true
+      OBJECT_STORAGE_SCALEWAY_KEY_ID: ${{ secrets.OBJECT_STORAGE_SCALEWAY_KEY_ID }}
+      OBJECT_STORAGE_SCALEWAY_ACCESS_KEY: ${{ secrets.OBJECT_STORAGE_SCALEWAY_ACCESS_KEY }}
 
     steps:
       - uses: actions/checkout@v3
@@ -75,6 +77,8 @@ jobs:
       - name: Run Test
         # external-plugins tests only run on schedule
         if: github.event_name == 'schedule' || matrix.test_suite != 'external-plugins'
+        env:
+          AKISMET_KEY: ${{ secrets.AKISMET_KEY }}
         run: npm run ci -- ${{ matrix.test_suite }}
 
       - name: Display errors
@@ -87,7 +91,7 @@ jobs:
           echo "parse-log.js script does not exist, skipping."
 
       - name: Upload logs
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         if: failure()
         with:
           name: test-storages-${{ matrix.test_suite }}

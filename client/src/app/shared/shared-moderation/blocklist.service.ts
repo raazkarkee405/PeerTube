@@ -4,6 +4,7 @@ import { catchError, concatMap, map, toArray } from 'rxjs/operators'
 import { HttpClient, HttpParams } from '@angular/common/http'
 import { Injectable } from '@angular/core'
 import { RestExtractor, RestPagination, RestService } from '@app/core'
+import { arrayify } from '@shared/core-utils'
 import { AccountBlock as AccountBlockServer, BlockStatus, ResultList, ServerBlock } from '@shared/models'
 import { environment } from '../../../environments/environment'
 import { Account } from '../shared-main'
@@ -52,7 +53,6 @@ export class BlocklistService {
 
     return this.authHttp.get<ResultList<AccountBlock>>(BlocklistService.BASE_USER_BLOCKLIST_URL + '/accounts', { params })
                .pipe(
-                 map(res => this.restExtractor.convertResultListDateToHuman(res)),
                  map(res => this.restExtractor.applyToResultListData(res, this.formatAccountBlock.bind(this))),
                  catchError(err => this.restExtractor.handleError(err))
                )
@@ -83,10 +83,7 @@ export class BlocklistService {
     if (search) params = params.append('search', search)
 
     return this.authHttp.get<ResultList<ServerBlock>>(BlocklistService.BASE_USER_BLOCKLIST_URL + '/servers', { params })
-               .pipe(
-                 map(res => this.restExtractor.convertResultListDateToHuman(res)),
-                 catchError(err => this.restExtractor.handleError(err))
-               )
+               .pipe(catchError(err => this.restExtractor.handleError(err)))
   }
 
   blockServerByUser (host: string) {
@@ -115,14 +112,13 @@ export class BlocklistService {
 
     return this.authHttp.get<ResultList<AccountBlock>>(BlocklistService.BASE_SERVER_BLOCKLIST_URL + '/accounts', { params })
                .pipe(
-                 map(res => this.restExtractor.convertResultListDateToHuman(res)),
                  map(res => this.restExtractor.applyToResultListData(res, this.formatAccountBlock.bind(this))),
                  catchError(err => this.restExtractor.handleError(err))
                )
   }
 
   blockAccountByInstance (accountsArg: Pick<Account, 'nameWithHost'> | Pick<Account, 'nameWithHost'>[]) {
-    const accounts = Array.isArray(accountsArg) ? accountsArg : [ accountsArg ]
+    const accounts = arrayify(accountsArg)
 
     return from(accounts)
       .pipe(
@@ -150,10 +146,7 @@ export class BlocklistService {
     if (search) params = params.append('search', search)
 
     return this.authHttp.get<ResultList<ServerBlock>>(BlocklistService.BASE_SERVER_BLOCKLIST_URL + '/servers', { params })
-               .pipe(
-                 map(res => this.restExtractor.convertResultListDateToHuman(res)),
-                 catchError(err => this.restExtractor.handleError(err))
-               )
+               .pipe(catchError(err => this.restExtractor.handleError(err)))
   }
 
   blockServerByInstance (host: string) {

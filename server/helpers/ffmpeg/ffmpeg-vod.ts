@@ -1,14 +1,15 @@
-import { Job } from 'bull'
+import { MutexInterface } from 'async-mutex'
+import { Job } from 'bullmq'
 import { FfmpegCommand } from 'fluent-ffmpeg'
 import { readFile, writeFile } from 'fs-extra'
 import { dirname } from 'path'
+import { VIDEO_TRANSCODING_FPS } from '@server/initializers/constants'
 import { pick } from '@shared/core-utils'
 import { AvailableEncoders, VideoResolution } from '@shared/models'
 import { logger, loggerTagsFactory } from '../logger'
 import { getFFmpeg, runCommand } from './ffmpeg-commons'
 import { presetCopy, presetOnlyAudio, presetVOD } from './ffmpeg-presets'
-import { computeFPS, getVideoStreamFPS } from './ffprobe-utils'
-import { VIDEO_TRANSCODING_FPS } from '@server/initializers/constants'
+import { computeFPS, ffprobePromise, getVideoStreamDimensionsInfo, getVideoStreamFPS } from './ffprobe-utils'
 
 const lTags = loggerTagsFactory('ffmpeg')
 
@@ -22,12 +23,14 @@ interface BaseTranscodeVODOptions {
   inputPath: string
   outputPath: string
 
+  // Will be released after the ffmpeg started
+  // To prevent a bug where the input file does not exist anymore when running ffmpeg
+  inputFileMutexReleaser: MutexInterface.Releaser
+
   availableEncoders: AvailableEncoders
   profile: string
 
   resolution: number
-
-  isPortraitMode?: boolean
 
   job?: Job
 }
@@ -96,6 +99,12 @@ async function transcodeVOD (options: TranscodeVODOptions) {
 
   command = await builders[options.type](command, options)
 
+  command.on('start', () => {
+    setTimeout(() => {
+      options.inputFileMutexReleaser()
+    }, 1000)
+  })
+
   await runCommand({ command, job: options.job })
 
   await fixHLSPlaylistIfNeeded(options)
@@ -115,13 +124,17 @@ export {
 // ---------------------------------------------------------------------------
 
 async function buildVODCommand (command: FfmpegCommand, options: TranscodeVODOptions) {
-  let fps = await getVideoStreamFPS(options.inputPath)
+  const probe = await ffprobePromise(options.inputPath)
+
+  let fps = await getVideoStreamFPS(options.inputPath, probe)
   fps = computeFPS(fps, options.resolution)
 
   let scaleFilterValue: string
 
   if (options.resolution !== undefined) {
-    scaleFilterValue = options.isPortraitMode === true
+    const videoStreamInfo = await getVideoStreamDimensionsInfo(options.inputPath, probe)
+
+    scaleFilterValue = videoStreamInfo?.isPortraitMode === true
       ? `w=${options.resolution}:h=-2`
       : `w=-2:h=${options.resolution}`
   }

@@ -54,6 +54,10 @@ export class VideoCommentListComponent extends RestTable implements OnInit {
         {
           value: 'local:false',
           label: $localize`Remote comments`
+        },
+        {
+          value: 'localVideo:true',
+          label: $localize`Comments on local videos`
         }
       ]
     }
@@ -111,7 +115,7 @@ export class VideoCommentListComponent extends RestTable implements OnInit {
   }
 
   toHtml (text: string) {
-    return this.markdownRenderer.textMarkdownToHTML(text, true, true)
+    return this.markdownRenderer.textMarkdownToHTML({ markdown: text, withHtml: true, withEmoji: true })
   }
 
   isInSelectionMode () {

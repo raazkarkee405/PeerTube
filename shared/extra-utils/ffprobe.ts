@@ -1,5 +1,6 @@
 import { ffprobe, FfprobeData } from 'fluent-ffmpeg'
-import { VideoFileMetadata } from '@shared/models/videos'
+import { forceNumber } from '@shared/core-utils'
+import { VideoFileMetadata, VideoResolution } from '@shared/models/videos'
 
 /**
  *
@@ -55,7 +56,7 @@ async function getAudioStream (videoPath: string, existingProbe?: FfprobeData) {
       return {
         absolutePath: data.format.filename,
         audioStream,
-        bitrate: parseInt(audioStream['bit_rate'] + '', 10)
+        bitrate: forceNumber(audioStream['bit_rate'])
       }
     }
   }
@@ -103,7 +104,15 @@ function getMaxAudioBitrate (type: 'aac' | 'mp3' | string, bitrate: number) {
 
 async function getVideoStreamDimensionsInfo (path: string, existingProbe?: FfprobeData) {
   const videoStream = await getVideoStream(path, existingProbe)
-  if (!videoStream) return undefined
+  if (!videoStream) {
+    return {
+      width: 0,
+      height: 0,
+      ratio: 0,
+      resolution: VideoResolution.H_NOVIDEO,
+      isPortraitMode: false
+    }
+  }
 
   return {
     width: videoStream.width,

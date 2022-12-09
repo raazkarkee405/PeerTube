@@ -1,7 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
 
-import 'mocha'
-import * as chai from 'chai'
+import { expect } from 'chai'
 import { getAudioStream, getVideoStreamDimensionsInfo } from '@server/helpers/ffmpeg'
 import {
   cleanupTests,
@@ -11,8 +10,6 @@ import {
   setAccessTokensToServers,
   waitJobs
 } from '@shared/server-commands'
-
-const expect = chai.expect
 
 describe('Test audio only video transcoding', function () {
   let servers: PeerTubeServer[] = []
@@ -92,7 +89,12 @@ describe('Test audio only video transcoding', function () {
       expect(audioStream['bit_rate']).to.be.at.most(384 * 8000)
 
       const size = await getVideoStreamDimensionsInfo(path)
-      expect(size).to.not.exist
+
+      expect(size.height).to.equal(0)
+      expect(size.width).to.equal(0)
+      expect(size.isPortraitMode).to.be.false
+      expect(size.ratio).to.equal(0)
+      expect(size.resolution).to.equal(0)
     }
   })
 

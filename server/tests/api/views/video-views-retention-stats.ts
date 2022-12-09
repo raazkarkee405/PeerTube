@@ -1,11 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
 
-import 'mocha'
-import * as chai from 'chai'
+import { expect } from 'chai'
 import { prepareViewsServers, prepareViewsVideos, processViewersStats } from '@server/tests/shared'
 import { cleanupTests, PeerTubeServer } from '@shared/server-commands'
-
-const expect = chai.expect
 
 describe('Test views retention stats', function () {
   let servers: PeerTubeServer[]
@@ -20,7 +17,7 @@ describe('Test views retention stats', function () {
     let vodVideoId: string
 
     before(async function () {
-      this.timeout(120000);
+      this.timeout(240000);
 
       ({ vodVideoId } = await prepareViewsVideos({ servers, live: false, vod: true }))
     })

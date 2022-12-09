@@ -1,8 +1,10 @@
 import express from 'express'
 import { createReadStream, createWriteStream } from 'fs'
 import { ensureDir, outputFile, readJSON } from 'fs-extra'
+import { Server } from 'http'
 import { basename, join } from 'path'
 import { decachePlugin } from '@server/helpers/decache'
+import { ApplicationModel } from '@server/models/application/application'
 import { MOAuthTokenUser, MUser } from '@server/types/models'
 import { getCompleteLocale } from '@shared/core-utils'
 import {
@@ -23,7 +25,7 @@ import { PluginModel } from '../../models/server/plugin'
 import { PluginLibrary, RegisterServerAuthExternalOptions, RegisterServerAuthPassOptions, RegisterServerOptions } from '../../types/plugins'
 import { ClientHtml } from '../client-html'
 import { RegisterHelpers } from './register-helpers'
-import { installNpmPlugin, installNpmPluginFromDisk, removeNpmPlugin } from './yarn'
+import { installNpmPlugin, installNpmPluginFromDisk, rebuildNativePlugins, removeNpmPlugin } from './yarn'
 
 export interface RegisteredPlugin {
   npmName: string
@@ -66,7 +68,35 @@ export class PluginManager implements ServerHook {
   private hooks: { [name: string]: HookInformationValue[] } = {}
   private translations: PluginLocalesTranslations = {}
 
+  private server: Server
+
   private constructor () {
+  }
+
+  init (server: Server) {
+    this.server = server
+  }
+
+  registerWebSocketRouter () {
+    this.server.on('upgrade', (request, socket, head) => {
+      const url = request.url
+
+      const matched = url.match(`/plugins/([^/]+)/([^/]+/)?ws(/.*)`)
+      if (!matched) return
+
+      const npmName = PluginModel.buildNpmName(matched[1], PluginType.PLUGIN)
+      const subRoute = matched[3]
+
+      const result = this.getRegisteredPluginOrTheme(npmName)
+      if (!result) return
+
+      const routes = result.registerHelpers.getWebSocketRoutes()
+
+      const wss = routes.find(r => r.route.startsWith(subRoute))
+      if (!wss) return
+
+      wss.handler(request, socket, head)
+    })
   }
 
   // ###################### Getters ######################
@@ -215,8 +245,12 @@ export class PluginManager implements ServerHook {
     for (const hook of this.hooks[hookName]) {
       logger.debug('Running hook %s of plugin %s.', hookName, hook.npmName)
 
-      result = await internalRunHook(hook.handler, hookType, result, params, err => {
-        logger.error('Cannot run hook %s of plugin %s.', hookName, hook.pluginName, { err })
+      result = await internalRunHook({
+        handler: hook.handler,
+        hookType,
+        result,
+        params,
+        onError: err => { logger.error('Cannot run hook %s of plugin %s.', hookName, hook.pluginName, { err }) }
       })
     }
 
@@ -378,6 +412,12 @@ export class PluginManager implements ServerHook {
     await removeNpmPlugin(npmName)
 
     logger.info('Plugin %s uninstalled.', npmName)
+  }
+
+  async rebuildNativePluginsIfNeeded () {
+    if (!await ApplicationModel.nodeABIChanged()) return
+
+    return rebuildNativePlugins()
   }
 
   // ###################### Private register ######################
@@ -570,7 +610,7 @@ export class PluginManager implements ServerHook {
       })
     }
 
-    const registerHelpers = new RegisterHelpers(npmName, plugin, onHookAdded.bind(this))
+    const registerHelpers = new RegisterHelpers(npmName, plugin, this.server, onHookAdded.bind(this))
 
     return {
       registerStore: registerHelpers,

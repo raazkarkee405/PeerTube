@@ -32,7 +32,7 @@
       <div class="form-group-description" i18n>⚠️ Never share your stream key with anyone.</div>
     </div>
 
-    <div class="journal">
+    <div class="journal" *ngIf="latestLiveSessions.length !== 0">
       <label i18n>Latest live sessions</label>
 
       <div class="journal-session" *ngFor="let session of latestLiveSessions">
@@ -42,6 +42,7 @@
         <span i18n>Started on {{ session.startDate | date:'medium' }}</span>
         <span i18n *ngIf="session.endDate">Ended on {{ session.endDate | date:'medium' }}</span>
         <a i18n *ngIf="session.replayVideo" [routerLink]="getVideoUrl(session.replayVideo)" target="_blank">Go to replay</a>
+        <span i18n *ngIf="isReplayBeingProcessed(session)">Replay is being processed...</span>
       </div>
     </div>
   </div>

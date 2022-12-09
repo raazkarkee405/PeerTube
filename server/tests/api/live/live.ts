@@ -1,11 +1,10 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
 
-import 'mocha'
-import * as chai from 'chai'
+import { expect } from 'chai'
 import { basename, join } from 'path'
 import { ffprobePromise, getVideoStream } from '@server/helpers/ffmpeg'
-import { checkLiveCleanup, checkLiveSegmentHash, checkResolutionsInMasterPlaylist, testImage } from '@server/tests/shared'
-import { wait } from '@shared/core-utils'
+import { testImage, testVideoResolutions } from '@server/tests/shared'
+import { getAllFiles, wait } from '@shared/core-utils'
 import {
   HttpStatusCode,
   LiveVideo,
@@ -22,6 +21,7 @@ import {
   doubleFollow,
   killallServers,
   LiveCommand,
+  makeGetRequest,
   makeRawRequest,
   PeerTubeServer,
   sendRTMPStream,
@@ -32,8 +32,6 @@ import {
   waitJobs,
   waitUntilLivePublishedOnAllServers
 } from '@shared/server-commands'
-
-const expect = chai.expect
 
 describe('Test live', function () {
   let servers: PeerTubeServer[] = []
@@ -160,8 +158,8 @@ describe('Test live', function () {
         expect(video.privacy.id).to.equal(VideoPrivacy.UNLISTED)
         expect(video.nsfw).to.be.true
 
-        await makeRawRequest(server.url + video.thumbnailPath, HttpStatusCode.OK_200)
-        await makeRawRequest(server.url + video.previewPath, HttpStatusCode.OK_200)
+        await makeGetRequest({ url: server.url, path: video.thumbnailPath, expectedStatus: HttpStatusCode.OK_200 })
+        await makeGetRequest({ url: server.url, path: video.previewPath, expectedStatus: HttpStatusCode.OK_200 })
       }
     })
 
@@ -223,7 +221,7 @@ describe('Test live', function () {
     let vodVideoId: string
 
     before(async function () {
-      this.timeout(120000)
+      this.timeout(240000)
 
       vodVideoId = (await servers[0].videos.quickUpload({ name: 'vod video' })).uuid
 
@@ -375,46 +373,6 @@ describe('Test live', function () {
       return uuid
     }
 
-    async function testVideoResolutions (liveVideoId: string, resolutions: number[]) {
-      for (const server of servers) {
-        const { data } = await server.videos.list()
-        expect(data.find(v => v.uuid === liveVideoId)).to.exist
-
-        const video = await server.videos.get({ id: liveVideoId })
-
-        expect(video.streamingPlaylists).to.have.lengthOf(1)
-
-        const hlsPlaylist = video.streamingPlaylists.find(s => s.type === VideoStreamingPlaylistType.HLS)
-        expect(hlsPlaylist).to.exist
-
-        // Only finite files are displayed
-        expect(hlsPlaylist.files).to.have.lengthOf(0)
-
-        await checkResolutionsInMasterPlaylist({ server, playlistUrl: hlsPlaylist.playlistUrl, resolutions })
-
-        for (let i = 0; i < resolutions.length; i++) {
-          const segmentNum = 3
-          const segmentName = `${i}-00000${segmentNum}.ts`
-          await commands[0].waitUntilSegmentGeneration({ videoUUID: video.uuid, playlistNumber: i, segment: segmentNum })
-
-          const subPlaylist = await servers[0].streamingPlaylists.get({
-            url: `${servers[0].url}/static/streaming-playlists/hls/${video.uuid}/${i}.m3u8`
-          })
-
-          expect(subPlaylist).to.contain(segmentName)
-
-          const baseUrlAndPath = servers[0].url + '/static/streaming-playlists/hls'
-          await checkLiveSegmentHash({
-            server,
-            baseUrlSegment: baseUrlAndPath,
-            videoUUID: video.uuid,
-            segmentName,
-            hlsPlaylist
-          })
-        }
-      }
-    }
-
     function updateConf (resolutions: number[]) {
       return servers[0].config.updateCustomSubConfig({
         newConfig: {
@@ -452,7 +410,26 @@ describe('Test live', function () {
       await waitUntilLivePublishedOnAllServers(servers, liveVideoId)
       await waitJobs(servers)
 
-      await testVideoResolutions(liveVideoId, [ 720 ])
+      await testVideoResolutions({
+        originServer: servers[0],
+        servers,
+        liveVideoId,
+        resolutions: [ 720 ],
+        objectStorage: false,
+        transcoded: true
+      })
+
+      await stopFfmpeg(ffmpegCommand)
+    })
+
+    it('Should transcode audio only RTMP stream', async function () {
+      this.timeout(120000)
+
+      liveVideoId = await createLiveWrapper(false)
+
+      const ffmpegCommand = await commands[0].sendRTMPStreamInVideo({ videoId: liveVideoId, fixtureName: 'video_short_no_audio.mp4' })
+      await waitUntilLivePublishedOnAllServers(servers, liveVideoId)
+      await waitJobs(servers)
 
       await stopFfmpeg(ffmpegCommand)
     })
@@ -468,7 +445,14 @@ describe('Test live', function () {
       await waitUntilLivePublishedOnAllServers(servers, liveVideoId)
       await waitJobs(servers)
 
-      await testVideoResolutions(liveVideoId, resolutions)
+      await testVideoResolutions({
+        originServer: servers[0],
+        servers,
+        liveVideoId,
+        resolutions: resolutions.concat([ 720 ]),
+        objectStorage: false,
+        transcoded: true
+      })
 
       await stopFfmpeg(ffmpegCommand)
     })
@@ -513,7 +497,14 @@ describe('Test live', function () {
       await waitUntilLivePublishedOnAllServers(servers, liveVideoId)
       await waitJobs(servers)
 
-      await testVideoResolutions(liveVideoId, resolutions)
+      await testVideoResolutions({
+        originServer: servers[0],
+        servers,
+        liveVideoId,
+        resolutions,
+        objectStorage: false,
+        transcoded: true
+      })
 
       await stopFfmpeg(ffmpegCommand)
       await commands[0].waitUntilEnded({ videoId: liveVideoId })
@@ -529,7 +520,7 @@ describe('Test live', function () {
       }
 
       const minBitrateLimits = {
-        720: 5500 * 1000,
+        720: 4800 * 1000,
         360: 1000 * 1000,
         240: 550 * 1000
       }
@@ -542,8 +533,8 @@ describe('Test live', function () {
         expect(video.files).to.have.lengthOf(0)
 
         const hlsPlaylist = video.streamingPlaylists.find(s => s.type === VideoStreamingPlaylistType.HLS)
-        await makeRawRequest(hlsPlaylist.playlistUrl, HttpStatusCode.OK_200)
-        await makeRawRequest(hlsPlaylist.segmentsSha256Url, HttpStatusCode.OK_200)
+        await makeRawRequest({ url: hlsPlaylist.playlistUrl, expectedStatus: HttpStatusCode.OK_200 })
+        await makeRawRequest({ url: hlsPlaylist.segmentsSha256Url, expectedStatus: HttpStatusCode.OK_200 })
 
         // We should have generated random filenames
         expect(basename(hlsPlaylist.playlistUrl)).to.not.equal('master.m3u8')
@@ -558,9 +549,9 @@ describe('Test live', function () {
           expect(file.size).to.be.greaterThan(1)
 
           if (resolution >= 720) {
-            expect(file.fps).to.be.approximately(60, 2)
+            expect(file.fps).to.be.approximately(60, 10)
           } else {
-            expect(file.fps).to.be.approximately(30, 2)
+            expect(file.fps).to.be.approximately(30, 3)
           }
 
           const filename = basename(file.fileUrl)
@@ -574,16 +565,93 @@ describe('Test live', function () {
           expect(probe.format.bit_rate).to.be.below(maxBitrateLimits[videoStream.height])
           expect(probe.format.bit_rate).to.be.at.least(minBitrateLimits[videoStream.height])
 
-          await makeRawRequest(file.torrentUrl, HttpStatusCode.OK_200)
-          await makeRawRequest(file.fileUrl, HttpStatusCode.OK_200)
+          await makeRawRequest({ url: file.torrentUrl, expectedStatus: HttpStatusCode.OK_200 })
+          await makeRawRequest({ url: file.fileUrl, expectedStatus: HttpStatusCode.OK_200 })
         }
       }
     })
 
-    it('Should correctly have cleaned up the live files', async function () {
-      this.timeout(30000)
+    it('Should not generate an upper resolution than original file', async function () {
+      this.timeout(400_000)
 
-      await checkLiveCleanup(servers[0], liveVideoId, [ 240, 360, 720 ])
+      const resolutions = [ 240, 480 ]
+      await updateConf(resolutions)
+
+      await servers[0].config.updateExistingSubConfig({
+        newConfig: {
+          live: {
+            transcoding: {
+              alwaysTranscodeOriginalResolution: false
+            }
+          }
+        }
+      })
+
+      liveVideoId = await createLiveWrapper(true)
+
+      const ffmpegCommand = await commands[0].sendRTMPStreamInVideo({ videoId: liveVideoId, fixtureName: 'video_short2.webm' })
+      await waitUntilLivePublishedOnAllServers(servers, liveVideoId)
+      await waitJobs(servers)
+
+      await testVideoResolutions({
+        originServer: servers[0],
+        servers,
+        liveVideoId,
+        resolutions,
+        objectStorage: false,
+        transcoded: true
+      })
+
+      await stopFfmpeg(ffmpegCommand)
+      await commands[0].waitUntilEnded({ videoId: liveVideoId })
+
+      await waitJobs(servers)
+
+      await waitUntilLivePublishedOnAllServers(servers, liveVideoId)
+
+      const video = await servers[0].videos.get({ id: liveVideoId })
+      const hlsFiles = video.streamingPlaylists[0].files
+
+      expect(video.files).to.have.lengthOf(0)
+      expect(hlsFiles).to.have.lengthOf(resolutions.length)
+
+      // eslint-disable-next-line @typescript-eslint/require-array-sort-compare
+      expect(getAllFiles(video).map(f => f.resolution.id).sort()).to.deep.equal(resolutions)
+    })
+
+    it('Should only keep the original resolution if all resolutions are disabled', async function () {
+      this.timeout(600_000)
+
+      await updateConf([])
+      liveVideoId = await createLiveWrapper(true)
+
+      const ffmpegCommand = await commands[0].sendRTMPStreamInVideo({ videoId: liveVideoId, fixtureName: 'video_short2.webm' })
+      await waitUntilLivePublishedOnAllServers(servers, liveVideoId)
+      await waitJobs(servers)
+
+      await testVideoResolutions({
+        originServer: servers[0],
+        servers,
+        liveVideoId,
+        resolutions: [ 720 ],
+        objectStorage: false,
+        transcoded: true
+      })
+
+      await stopFfmpeg(ffmpegCommand)
+      await commands[0].waitUntilEnded({ videoId: liveVideoId })
+
+      await waitJobs(servers)
+
+      await waitUntilLivePublishedOnAllServers(servers, liveVideoId)
+
+      const video = await servers[0].videos.get({ id: liveVideoId })
+      const hlsFiles = video.streamingPlaylists[0].files
+
+      expect(video.files).to.have.lengthOf(0)
+      expect(hlsFiles).to.have.lengthOf(1)
+
+      expect(hlsFiles[0].resolution.id).to.equal(720)
     })
   })
 
@@ -610,7 +678,7 @@ describe('Test live', function () {
     }
 
     before(async function () {
-      this.timeout(300000)
+      this.timeout(600_000)
 
       liveVideoId = await createLiveWrapper({ saveReplay: false, permanent: false })
       liveVideoReplayId = await createLiveWrapper({ saveReplay: true, permanent: false })
@@ -628,9 +696,15 @@ describe('Test live', function () {
         commands[0].waitUntilPublished({ videoId: liveVideoReplayId })
       ])
 
-      await commands[0].waitUntilSegmentGeneration({ videoUUID: liveVideoId, playlistNumber: 0, segment: 2 })
-      await commands[0].waitUntilSegmentGeneration({ videoUUID: liveVideoReplayId, playlistNumber: 0, segment: 2 })
-      await commands[0].waitUntilSegmentGeneration({ videoUUID: permanentLiveVideoReplayId, playlistNumber: 0, segment: 2 })
+      for (const videoUUID of [ liveVideoId, liveVideoReplayId, permanentLiveVideoReplayId ]) {
+        await commands[0].waitUntilSegmentGeneration({
+          server: servers[0],
+          videoUUID,
+          playlistNumber: 0,
+          segment: 2,
+          objectStorage: false
+        })
+      }
 
       {
         const video = await servers[0].videos.get({ id: permanentLiveVideoReplayId })

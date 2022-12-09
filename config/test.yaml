@@ -5,6 +5,9 @@ listen:
 webserver:
   https: false
 
+secrets:
+  peertube: 'my super secret'
+
 rates_limit:
   signup:
     window: 10 minutes
@@ -148,3 +151,8 @@ geo_ip:
 
 video_studio:
   enabled: true
+
+open_telemetry:
+  metrics:
+    prometheus_exporter:
+      port: 9092

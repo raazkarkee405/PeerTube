@@ -117,6 +117,8 @@ export interface CustomConfig {
 
     resolutions: ConfigResolutions & { '0p': boolean }
 
+    alwaysTranscodeOriginalResolution: boolean
+
     webtorrent: {
       enabled: boolean
     }
@@ -144,6 +146,7 @@ export interface CustomConfig {
       threads: number
       profile: string
       resolutions: ConfigResolutions
+      alwaysTranscodeOriginalResolution: boolean
     }
   }
 
@@ -161,6 +164,10 @@ export interface CustomConfig {
       torrent: {
         enabled: boolean
       }
+    }
+    videoChannelSynchronization: {
+      enabled: boolean
+      maxPerUser: number
     }
   }
 

@@ -20,7 +20,7 @@ export class ManagerOptionsBuilder {
 
   }
 
-  getVideojsOptions (alreadyPlayed: boolean): videojs.PlayerOptions {
+  async getVideojsOptions (alreadyPlayed: boolean): Promise<videojs.PlayerOptions> {
     const commonOptions = this.options.common
 
     let autoplay = this.getAutoPlayValue(commonOptions.autoplay, alreadyPlayed)
@@ -44,6 +44,14 @@ export class ManagerOptionsBuilder {
           'isLive',
           'videoUUID'
         ])
+      },
+      metrics: {
+        mode: this.mode,
+
+        ...pick(commonOptions, [
+          'metricsUrl',
+          'videoUUID'
+        ])
       }
     }
 
@@ -53,7 +61,7 @@ export class ManagerOptionsBuilder {
 
     if (this.mode === 'p2p-media-loader') {
       const hlsOptionsBuilder = new HLSOptionsBuilder(this.options, this.p2pMediaLoaderModule)
-      const options = hlsOptionsBuilder.getPluginOptions()
+      const options = await hlsOptionsBuilder.getPluginOptions()
 
       Object.assign(plugins, pick(options, [ 'hlsjs', 'p2pMediaLoader' ]))
       Object.assign(html5, options.html5)
@@ -100,7 +108,7 @@ export class ManagerOptionsBuilder {
     return videojsOptions
   }
 
-  private getAutoPlayValue (autoplay: any, alreadyPlayed: boolean) {
+  private getAutoPlayValue (autoplay: videojs.Autoplay, alreadyPlayed: boolean) {
     if (autoplay !== true) return autoplay
 
     // On first play, disable autoplay to avoid issues
@@ -109,7 +117,9 @@ export class ManagerOptionsBuilder {
       return alreadyPlayed ? 'play' : false
     }
 
-    return 'play'
+    return this.options.common.forceAutoplay
+      ? 'any'
+      : 'play'
   }
 
   getContextMenuOptions (player: videojs.Player, commonOptions: CommonOptions) {
@@ -142,7 +152,7 @@ export class ManagerOptionsBuilder {
           icon: 'code',
           label: player.localize('Copy embed code'),
           listener: () => {
-            copyToClipboard(buildVideoOrPlaylistEmbed(commonOptions.embedUrl, commonOptions.embedTitle))
+            copyToClipboard(buildVideoOrPlaylistEmbed({ embedUrl: commonOptions.embedUrl, embedTitle: commonOptions.embedTitle }))
           }
         }
       ]

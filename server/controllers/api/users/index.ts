@@ -36,7 +36,7 @@ import {
   usersUpdateValidator
 } from '../../../middlewares'
 import {
-  ensureCanManageUser,
+  ensureCanModerateUser,
   usersAskResetPasswordValidator,
   usersAskSendVerifyEmailValidator,
   usersBlockingValidator,
@@ -51,6 +51,7 @@ import { myVideosHistoryRouter } from './my-history'
 import { myNotificationsRouter } from './my-notifications'
 import { mySubscriptionsRouter } from './my-subscriptions'
 import { myVideoPlaylistsRouter } from './my-video-playlists'
+import { twoFactorRouter } from './two-factor'
 
 const auditLogger = auditLoggerFactory('users')
 
@@ -66,6 +67,7 @@ const askSendEmailLimiter = buildRateLimiter({
 })
 
 const usersRouter = express.Router()
+usersRouter.use('/', twoFactorRouter)
 usersRouter.use('/', tokensRouter)
 usersRouter.use('/', myNotificationsRouter)
 usersRouter.use('/', mySubscriptionsRouter)
@@ -95,14 +97,14 @@ usersRouter.post('/:id/block',
   authenticate,
   ensureUserHasRight(UserRight.MANAGE_USERS),
   asyncMiddleware(usersBlockingValidator),
-  ensureCanManageUser,
+  ensureCanModerateUser,
   asyncMiddleware(blockUser)
 )
 usersRouter.post('/:id/unblock',
   authenticate,
   ensureUserHasRight(UserRight.MANAGE_USERS),
   asyncMiddleware(usersBlockingValidator),
-  ensureCanManageUser,
+  ensureCanModerateUser,
   asyncMiddleware(unblockUser)
 )
 
@@ -132,7 +134,7 @@ usersRouter.put('/:id',
   authenticate,
   ensureUserHasRight(UserRight.MANAGE_USERS),
   asyncMiddleware(usersUpdateValidator),
-  ensureCanManageUser,
+  ensureCanModerateUser,
   asyncMiddleware(updateUser)
 )
 
@@ -140,7 +142,7 @@ usersRouter.delete('/:id',
   authenticate,
   ensureUserHasRight(UserRight.MANAGE_USERS),
   asyncMiddleware(usersRemoveValidator),
-  ensureCanManageUser,
+  ensureCanModerateUser,
   asyncMiddleware(removeUser)
 )
 
@@ -343,7 +345,7 @@ async function askResetUserPassword (req: express.Request, res: express.Response
 
   const verificationString = await Redis.Instance.setResetPasswordVerificationString(user.id)
   const url = WEBSERVER.URL + '/reset-password?userId=' + user.id + '&verificationString=' + verificationString
-  await Emailer.Instance.addPasswordResetEmailJob(user.username, user.email, url)
+  Emailer.Instance.addPasswordResetEmailJob(user.username, user.email, url)
 
   return res.status(HttpStatusCode.NO_CONTENT_204).end()
 }

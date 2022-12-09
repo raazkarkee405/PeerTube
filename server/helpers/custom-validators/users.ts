@@ -1,4 +1,3 @@
-import { values } from 'lodash'
 import validator from 'validator'
 import { UserRole } from '@shared/models'
 import { isEmailEnabled } from '../../initializers/config'
@@ -27,9 +26,9 @@ function isUserVideoQuotaDailyValid (value: string) {
 }
 
 function isUserUsernameValid (value: string) {
-  const max = USERS_CONSTRAINTS_FIELDS.USERNAME.max
-  const min = USERS_CONSTRAINTS_FIELDS.USERNAME.min
-  return exists(value) && validator.matches(value, new RegExp(`^[a-z0-9._]{${min},${max}}$`))
+  return exists(value) &&
+    validator.matches(value, new RegExp(`^[a-z0-9_]+([a-z0-9_.-]+[a-z0-9_]+)?$`)) &&
+    validator.isLength(value, USERS_CONSTRAINTS_FIELDS.USERNAME)
 }
 
 function isUserDisplayNameValid (value: string) {
@@ -44,9 +43,9 @@ function isUserEmailVerifiedValid (value: any) {
   return isBooleanValid(value)
 }
 
-const nsfwPolicies = values(NSFW_POLICY_TYPES)
+const nsfwPolicies = new Set(Object.values(NSFW_POLICY_TYPES))
 function isUserNSFWPolicyValid (value: any) {
-  return exists(value) && nsfwPolicies.includes(value)
+  return exists(value) && nsfwPolicies.has(value)
 }
 
 function isUserP2PEnabledValid (value: any) {

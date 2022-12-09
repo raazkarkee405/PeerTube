@@ -41,23 +41,20 @@ button {
   margin-top: 10px;
 }
 
-.transcoding-information {
+my-user-real-quota-info {
+  display: block;
   margin-top: 5px;
   font-size: 11px;
 }
 
 .danger-zone {
-  .reset-password-email {
-    margin-bottom: 30px;
+  button {
+    @include peertube-button;
+    @include danger-button;
+    @include disable-outline;
 
-    button {
-      @include peertube-button;
-      @include danger-button;
-      @include disable-outline;
-
-      display: block;
-      margin-top: 0;
-    }
+    display: block;
+    margin-top: 0;
   }
 }
 

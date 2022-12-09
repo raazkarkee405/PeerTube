@@ -1,12 +1,59 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
 
-import 'mocha'
-import * as chai from 'chai'
+import { expect } from 'chai'
 import { FfmpegCommand } from 'fluent-ffmpeg'
 import { prepareViewsServers, prepareViewsVideos, processViewersStats } from '@server/tests/shared'
 import { cleanupTests, PeerTubeServer, stopFfmpeg, waitJobs } from '@shared/server-commands'
+import { wait } from '@shared/core-utils'
+import { VideoStatsOverall } from '@shared/models'
 
-const expect = chai.expect
+/**
+ *
+ * Simulate 5 sections of viewers
+ *  * user0 started and ended before start date
+ *  * user1 started before start date and ended in the interval
+ *  * user2 started started in the interval and ended after end date
+ *  * user3 started and ended in the interval
+ *  * user4 started and ended after end date
+ */
+async function simulateComplexViewers (servers: PeerTubeServer[], videoUUID: string) {
+  const user0 = '8.8.8.8,127.0.0.1'
+  const user1 = '8.8.8.8,127.0.0.1'
+  const user2 = '8.8.8.9,127.0.0.1'
+  const user3 = '8.8.8.10,127.0.0.1'
+  const user4 = '8.8.8.11,127.0.0.1'
+
+  await servers[0].views.view({ id: videoUUID, currentTime: 0, xForwardedFor: user0 }) // User 0 starts
+  await wait(500)
+
+  await servers[0].views.view({ id: videoUUID, currentTime: 0, xForwardedFor: user1 }) // User 1 starts
+  await servers[0].views.view({ id: videoUUID, currentTime: 2, xForwardedFor: user0 }) // User 0 ends
+  await wait(500)
+
+  const startDate = new Date().toISOString()
+  await servers[0].views.view({ id: videoUUID, currentTime: 0, xForwardedFor: user2 }) // User 2 starts
+  await wait(500)
+
+  await servers[0].views.view({ id: videoUUID, currentTime: 0, xForwardedFor: user3 }) // User 3 starts
+  await wait(500)
+
+  await servers[0].views.view({ id: videoUUID, currentTime: 4, xForwardedFor: user1 }) // User 1 ends
+  await wait(500)
+
+  await servers[0].views.view({ id: videoUUID, currentTime: 3, xForwardedFor: user3 }) // User 3 ends
+  await wait(500)
+
+  const endDate = new Date().toISOString()
+  await servers[0].views.view({ id: videoUUID, currentTime: 0, xForwardedFor: user4 }) // User 4 starts
+  await servers[0].views.view({ id: videoUUID, currentTime: 5, xForwardedFor: user2 }) // User 2 ends
+  await wait(500)
+
+  await servers[0].views.view({ id: videoUUID, currentTime: 1, xForwardedFor: user4 }) // User 4 ends
+
+  await processViewersStats(servers)
+
+  return { startDate, endDate }
+}
 
 describe('Test views overall stats', function () {
   let servers: PeerTubeServer[]
@@ -23,7 +70,7 @@ describe('Test views overall stats', function () {
     let command: FfmpegCommand
 
     before(async function () {
-      this.timeout(120000);
+      this.timeout(240000);
 
       ({ vodVideoId, liveVideoId, ffmpegCommand: command } = await prepareViewsVideos({ servers, live: true, vod: true }))
     })
@@ -182,7 +229,7 @@ describe('Test views overall stats', function () {
     let before2Watchers: Date
 
     before(async function () {
-      this.timeout(120000);
+      this.timeout(240000);
 
       ({ vodVideoId: videoUUID } = await prepareViewsVideos({ servers, live: true, vod: true }))
     })
@@ -239,6 +286,22 @@ describe('Test views overall stats', function () {
         expect(stats.viewersPeak).to.equal(1)
         expect(new Date(stats.viewersPeakDate)).to.be.below(before2Watchers)
       }
+    })
+
+    it('Should complex filter peak viewers by date', async function () {
+      this.timeout(60000)
+
+      const { startDate, endDate } = await simulateComplexViewers(servers, videoUUID)
+
+      const expectCorrect = (stats: VideoStatsOverall) => {
+        expect(stats.viewersPeak).to.equal(3)
+        expect(new Date(stats.viewersPeakDate)).to.be.above(new Date(startDate)).and.below(new Date(endDate))
+      }
+
+      expectCorrect(await servers[0].videoStats.getOverallStats({ videoId: videoUUID, startDate, endDate }))
+      expectCorrect(await servers[0].videoStats.getOverallStats({ videoId: videoUUID, startDate }))
+      expectCorrect(await servers[0].videoStats.getOverallStats({ videoId: videoUUID, endDate }))
+      expectCorrect(await servers[0].videoStats.getOverallStats({ videoId: videoUUID }))
     })
   })
 

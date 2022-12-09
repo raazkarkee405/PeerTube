@@ -1,7 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
 
-import 'mocha'
-import * as chai from 'chai'
+import { expect } from 'chai'
 import { wait } from '@shared/core-utils'
 import { LiveVideoError, VideoPrivacy } from '@shared/models'
 import {
@@ -18,8 +17,6 @@ import {
   waitUntilLiveWaitingOnAllServers
 } from '@shared/server-commands'
 import { checkLiveCleanup } from '../../shared'
-
-const expect = chai.expect
 
 describe('Test live constraints', function () {
   let servers: PeerTubeServer[] = []
@@ -52,7 +49,7 @@ describe('Test live constraints', function () {
       expect(video.duration).to.be.greaterThan(0)
     }
 
-    await checkLiveCleanup(servers[0], videoId, resolutions)
+    await checkLiveCleanup({ server: servers[0], permanent: false, videoUUID: videoId, savedResolutions: resolutions })
   }
 
   function updateQuota (options: { total: number, daily: number }) {

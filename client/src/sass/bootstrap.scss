@@ -3,31 +3,37 @@
 
 @import './_bootstrap-variables';
 
-@import '~bootstrap/scss/functions';
-@import '~bootstrap/scss/variables';
-@import '~bootstrap/scss/mixins';
-@import '~bootstrap/scss/utilities';
+@import 'bootstrap/scss/functions';
+@import 'bootstrap/scss/variables';
+@import 'bootstrap/scss/maps';
+@import 'bootstrap/scss/mixins';
+@import 'bootstrap/scss/utilities';
 
-@import '~bootstrap/scss/root';
-@import '~bootstrap/scss/reboot';
-@import '~bootstrap/scss/type';
-@import '~bootstrap/scss/grid';
-@import '~bootstrap/scss/forms';
-@import '~bootstrap/scss/buttons';
-@import '~bootstrap/scss/dropdown';
-@import '~bootstrap/scss/button-group';
-@import '~bootstrap/scss/nav';
-@import '~bootstrap/scss/card';
-@import '~bootstrap/scss/accordion';
-@import '~bootstrap/scss/alert';
-@import '~bootstrap/scss/close';
-@import '~bootstrap/scss/modal';
-@import '~bootstrap/scss/tooltip';
-@import '~bootstrap/scss/popover';
-@import '~bootstrap/scss/spinners';
+@import 'bootstrap/scss/root';
+@import 'bootstrap/scss/reboot';
+@import 'bootstrap/scss/type';
+@import 'bootstrap/scss/grid';
+@import 'bootstrap/scss/forms';
+@import 'bootstrap/scss/buttons';
+@import 'bootstrap/scss/dropdown';
+@import 'bootstrap/scss/button-group';
+@import 'bootstrap/scss/nav';
+@import 'bootstrap/scss/card';
+@import 'bootstrap/scss/accordion';
+@import 'bootstrap/scss/alert';
+@import 'bootstrap/scss/close';
+@import 'bootstrap/scss/modal';
+@import 'bootstrap/scss/tooltip';
+@import 'bootstrap/scss/popover';
+@import 'bootstrap/scss/spinners';
 
-@import '~bootstrap/scss/helpers';
-@import '~bootstrap/scss/utilities/api';
+@import 'bootstrap/scss/helpers';
+@import 'bootstrap/scss/utilities/api';
+
+.accordion {
+  --bs-accordion-color: #{pvar(--mainForegroundColor)};
+  --bs-accordion-bg: #{pvar(--mainBackgroundColor)};
+}
 
 .flex-auto {
   flex: auto;
@@ -327,7 +333,10 @@
   .input-group-text > .dropdown-toggle {
     display: flex;
   }
+}
 
+.input-group,
+.btn-group {
   .last-in-group {
     border-top-right-radius: 3px !important;
     border-bottom-right-radius: 3px !important;

@@ -3,11 +3,11 @@ import { Subject, Subscription } from 'rxjs'
 import { debounceTime, filter } from 'rxjs/operators'
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, Input, OnChanges, OnDestroy, OnInit, SimpleChanges } from '@angular/core'
 import { AuthService, DisableForReuseHook, Notifier } from '@app/core'
-import { FormReactive, FormValidatorService } from '@app/shared/shared-forms'
+import { FormReactive, FormReactiveService } from '@app/shared/shared-forms'
 import { secondsToTime } from '@shared/core-utils'
 import {
+  CachedVideoExistInPlaylist,
   Video,
-  VideoExistInPlaylist,
   VideoPlaylistCreate,
   VideoPlaylistElementCreate,
   VideoPlaylistElementUpdate,
@@ -16,7 +16,7 @@ import {
 import { VIDEO_PLAYLIST_DISPLAY_NAME_VALIDATOR } from '../form-validators/video-playlist-validators'
 import { CachedPlaylist, VideoPlaylistService } from './video-playlist.service'
 
-const logger = debug('peertube:playlists:VideoAddToPlaylistComponent')
+const debugLogger = debug('peertube:playlists:VideoAddToPlaylistComponent')
 
 type PlaylistElement = {
   enabled: boolean
@@ -59,7 +59,7 @@ export class VideoAddToPlaylistComponent extends FormReactive implements OnInit,
   private pendingAddId: number
 
   constructor (
-    protected formValidatorService: FormValidatorService,
+    protected formReactiveService: FormReactiveService,
     private authService: AuthService,
     private notifier: Notifier,
     private videoPlaylistService: VideoPlaylistService,
@@ -110,7 +110,7 @@ export class VideoAddToPlaylistComponent extends FormReactive implements OnInit,
   }
 
   reload () {
-    logger('Reloading component')
+    debugLogger('Reloading component')
 
     this.videoPlaylists = []
     this.videoPlaylistSearch = undefined
@@ -121,7 +121,7 @@ export class VideoAddToPlaylistComponent extends FormReactive implements OnInit,
   }
 
   load () {
-    logger('Loading component')
+    debugLogger('Loading component')
 
     this.listenToVideoPlaylistChange()
 
@@ -330,8 +330,8 @@ export class VideoAddToPlaylistComponent extends FormReactive implements OnInit,
     }
   }
 
-  private rebuildPlaylists (existResult: VideoExistInPlaylist[]) {
-    logger('Got existing results for %d.', this.video.id, existResult)
+  private rebuildPlaylists (existResult: CachedVideoExistInPlaylist[]) {
+    debugLogger('Got existing results for %d.', this.video.id, existResult)
 
     const oldPlaylists = this.videoPlaylists
 
@@ -359,7 +359,7 @@ export class VideoAddToPlaylistComponent extends FormReactive implements OnInit,
       this.videoPlaylists.push(playlistSummary)
     }
 
-    logger('Rebuilt playlist state for video %d.', this.video.id, this.videoPlaylists)
+    debugLogger('Rebuilt playlist state for video %d.', this.video.id, this.videoPlaylists)
 
     this.cd.markForCheck()
   }

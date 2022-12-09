@@ -36,6 +36,8 @@ export interface CommonOptions extends CustomizationOptions {
   onPlayerElementChange: (element: HTMLVideoElement) => void
 
   autoplay: boolean
+  forceAutoplay: boolean
+
   p2pEnabled: boolean
 
   nextVideo?: () => void
@@ -57,7 +59,9 @@ export interface CommonOptions extends CustomizationOptions {
   captions: boolean
 
   videoViewUrl: string
-  authorizationHeader?: string
+  authorizationHeader?: () => string
+
+  metricsUrl: string
 
   embedUrl: string
   embedTitle: string
@@ -75,6 +79,8 @@ export interface CommonOptions extends CustomizationOptions {
   videoShortUUID: string
 
   serverUrl: string
+  requiresAuth: boolean
+  videoFileToken: () => string
 
   errorNotifier: (message: string) => void
 }

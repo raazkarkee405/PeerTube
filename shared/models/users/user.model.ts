@@ -28,8 +28,10 @@ export interface User {
   videosHistoryEnabled: boolean
   videoLanguages: string[]
 
-  role: UserRole
-  roleLabel: string
+  role: {
+    id: UserRole
+    label: string
+  }
 
   videoQuota: number
   videoQuotaDaily: number
@@ -62,6 +64,8 @@ export interface User {
   pluginAuth: string | null
 
   lastLoginDate: Date | null
+
+  twoFactorEnabled: boolean
 }
 
 export interface MyUserSpecialPlaylist {

@@ -1,7 +1,7 @@
 import ffmpeg, { FfmpegCommand } from 'fluent-ffmpeg'
 import { buildAbsoluteFixturePath, wait } from '@shared/core-utils'
+import { VideoDetails, VideoInclude, VideoPrivacy } from '@shared/models'
 import { PeerTubeServer } from '../server/server'
-import { VideoDetails, VideoInclude } from '@shared/models'
 
 function sendRTMPStream (options: {
   rtmpBaseUrl: string
@@ -98,7 +98,10 @@ async function waitUntilLiveReplacedByReplayOnAllServers (servers: PeerTubeServe
 }
 
 async function findExternalSavedVideo (server: PeerTubeServer, liveDetails: VideoDetails) {
-  const { data } = await server.videos.list({ token: server.accessToken, sort: '-publishedAt', include: VideoInclude.BLACKLISTED })
+  const include = VideoInclude.BLACKLISTED
+  const privacyOneOf = [ VideoPrivacy.INTERNAL, VideoPrivacy.PRIVATE, VideoPrivacy.PUBLIC, VideoPrivacy.UNLISTED ]
+
+  const { data } = await server.videos.list({ token: server.accessToken, sort: '-publishedAt', include, privacyOneOf })
 
   return data.find(v => v.name === liveDetails.name + ' - ' + new Date(liveDetails.publishedAt).toLocaleString())
 }

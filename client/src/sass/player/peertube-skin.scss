@@ -189,9 +189,26 @@ body {
   }
 }
 
+.vjs-error-display {
+  display: none;
+}
+
+.vjs-custom-error-display {
+  font-family: $main-fonts;
+
+  .error-details {
+    margin-top: 40px;
+    font-size: 80%;
+  }
+}
+
+.vjs-modal-dialog-content {
+  padding-top: 40px !important;
+}
+
 // Error display disabled
 .vjs-error:not(.vjs-error-display-enabled) {
-  .vjs-error-display {
+  .vjs-custom-error-display {
     display: none;
   }
 
@@ -202,7 +219,7 @@ body {
 
 // Error display enabled
 .vjs-error.vjs-error-display-enabled {
-  .vjs-error-display {
+  .vjs-custom-error-display {
     display: block;
   }
 }

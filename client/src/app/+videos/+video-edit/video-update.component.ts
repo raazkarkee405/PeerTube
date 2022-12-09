@@ -4,13 +4,14 @@ import { SelectChannelItem } from 'src/types/select-options-item.model'
 import { Component, HostListener, OnInit } from '@angular/core'
 import { ActivatedRoute, Router } from '@angular/router'
 import { Notifier } from '@app/core'
-import { FormReactive, FormValidatorService } from '@app/shared/shared-forms'
+import { FormReactive, FormReactiveService } from '@app/shared/shared-forms'
 import { Video, VideoCaptionEdit, VideoCaptionService, VideoDetails, VideoEdit, VideoService } from '@app/shared/shared-main'
 import { LiveVideoService } from '@app/shared/shared-video-live'
 import { LoadingBarService } from '@ngx-loading-bar/core'
+import { logger } from '@root-helpers/logger'
 import { LiveVideo, LiveVideoUpdate, VideoPrivacy } from '@shared/models'
-import { hydrateFormFromVideo } from './shared/video-edit-utils'
 import { VideoSource } from '@shared/models/videos/video-source'
+import { hydrateFormFromVideo } from './shared/video-edit-utils'
 
 @Component({
   selector: 'my-videos-update',
@@ -27,12 +28,11 @@ export class VideoUpdateComponent extends FormReactive implements OnInit {
 
   isUpdatingVideo = false
   forbidScheduledPublication = false
-  waitTranscodingEnabled = true
 
   private updateDone = false
 
   constructor (
-    protected formValidatorService: FormValidatorService,
+    protected formReactiveService: FormReactiveService,
     private route: ActivatedRoute,
     private router: Router,
     private notifier: Notifier,
@@ -95,16 +95,12 @@ export class VideoUpdateComponent extends FormReactive implements OnInit {
     return { canDeactivate: this.formChanged === false, text }
   }
 
-  isWaitTranscodingEnabled () {
+  isWaitTranscodingHidden () {
     if (this.videoDetails.getFiles().length > 1) { // Already transcoded
-      return false
+      return true
     }
 
-    if (this.liveVideo && this.form.value['saveReplay'] !== true) {
-      return false
-    }
-
-    return true
+    return false
   }
 
   async update () {
@@ -156,7 +152,7 @@ export class VideoUpdateComponent extends FormReactive implements OnInit {
             this.loadingBar.useRef().complete()
             this.isUpdatingVideo = false
             this.notifier.error(err.message)
-            console.error(err)
+            logger.error(err)
           }
         })
   }

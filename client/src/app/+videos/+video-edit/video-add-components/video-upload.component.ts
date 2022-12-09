@@ -1,17 +1,19 @@
 import { truncate } from 'lodash-es'
 import { UploadState, UploadxOptions, UploadxService } from 'ngx-uploadx'
-import { isIOS } from '@root-helpers/web-browser'
 import { HttpErrorResponse, HttpEventType, HttpHeaders } from '@angular/common/http'
 import { AfterViewInit, Component, ElementRef, EventEmitter, OnDestroy, OnInit, Output, ViewChild } from '@angular/core'
 import { ActivatedRoute, Router } from '@angular/router'
 import { AuthService, CanComponentDeactivate, HooksService, MetaService, Notifier, ServerService, UserService } from '@app/core'
 import { genericUploadErrorHandler, scrollToTop } from '@app/helpers'
-import { FormValidatorService } from '@app/shared/shared-forms'
+import { FormReactiveService } from '@app/shared/shared-forms'
 import { BytesPipe, Video, VideoCaptionService, VideoEdit, VideoService } from '@app/shared/shared-main'
 import { LoadingBarService } from '@ngx-loading-bar/core'
+import { logger } from '@root-helpers/logger'
+import { isIOS } from '@root-helpers/web-browser'
 import { HttpStatusCode, VideoCreateResult } from '@shared/models'
 import { UploaderXFormData } from './uploaderx-form-data'
 import { VideoSend } from './video-send'
+import { Subscription } from 'rxjs'
 
 @Component({
   selector: 'my-video-upload',
@@ -55,8 +57,10 @@ export class VideoUploadComponent extends VideoSend implements OnInit, OnDestroy
 
   private alreadyRefreshedToken = false
 
+  private uploadServiceSubscription: Subscription
+
   constructor (
-    protected formValidatorService: FormValidatorService,
+    protected formReactiveService: FormReactiveService,
     protected loadingBar: LoadingBarService,
     protected notifier: Notifier,
     protected authService: AuthService,
@@ -86,7 +90,7 @@ export class VideoUploadComponent extends VideoSend implements OnInit, OnDestroy
           this.userVideoQuotaUsedDaily = data.videoQuotaUsedDaily
         })
 
-    this.resumableUploadService.events
+    this.uploadServiceSubscription = this.resumableUploadService.events
       .subscribe(state => this.onUploadVideoOngoing(state))
   }
 
@@ -95,7 +99,9 @@ export class VideoUploadComponent extends VideoSend implements OnInit, OnDestroy
   }
 
   ngOnDestroy () {
-    this.cancelUpload()
+    this.resumableUploadService.disconnect()
+
+    if (this.uploadServiceSubscription) this.uploadServiceSubscription.unsubscribe()
   }
 
   canDeactivate () {
@@ -130,7 +136,7 @@ export class VideoUploadComponent extends VideoSend implements OnInit, OnDestroy
   onUploadVideoOngoing (state: UploadState) {
     switch (state.status) {
       case 'error': {
-        if (!this.alreadyRefreshedToken && state.response.status === HttpStatusCode.UNAUTHORIZED_401) {
+        if (!this.alreadyRefreshedToken && state.responseStatus === HttpStatusCode.UNAUTHORIZED_401) {
           this.alreadyRefreshedToken = true
 
           return this.refereshTokenAndRetryUpload()
@@ -264,7 +270,7 @@ export class VideoUploadComponent extends VideoSend implements OnInit, OnDestroy
           error: err => {
             this.error = err.message
             scrollToTop()
-            console.error(err)
+            logger.error(err)
           }
         })
   }

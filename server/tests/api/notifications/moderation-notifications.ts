@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
 
-import 'mocha'
 import {
   checkAbuseStateChange,
   checkAutoInstanceFollowing,
@@ -383,7 +382,7 @@ describe('Test moderation notifications', function () {
     })
 
     it('Should send a notification only to admin when there is a new instance follower', async function () {
-      this.timeout(20000)
+      this.timeout(60000)
 
       await servers[2].follows.follow({ hosts: [ servers[0].url ] })
 
@@ -546,7 +545,7 @@ describe('Test moderation notifications', function () {
     })
 
     it('Should send unblacklist but not published/subscription notes after unblacklisted if scheduled update pending', async function () {
-      this.timeout(40000)
+      this.timeout(120000)
 
       const updateAt = new Date(new Date().getTime() + 1000000)
 
@@ -602,7 +601,7 @@ describe('Test moderation notifications', function () {
     })
 
     it('Should not send a notification to moderators on new video without auto-blacklist', async function () {
-      this.timeout(60000)
+      this.timeout(120000)
 
       const name = 'video without auto-blacklist ' + buildUUID()
 

@@ -12,6 +12,7 @@
     - [Storage](#storage)
     - [Update video constants](#update-video-constants)
     - [Add custom routes](#add-custom-routes)
+    - [Add custom WebSocket handlers](#add-custom-websocket-handlers)
     - [Add external auth methods](#add-external-auth-methods)
     - [Add new transcoding profiles](#add-new-transcoding-profiles)
     - [Server helpers](#server-helpers)
@@ -316,6 +317,43 @@ The `ping` route can be accessed using:
  * `/plugins/:pluginName/:pluginVersion/router/ping`
  * Or `/plugins/:pluginName/router/ping`
 
+
+#### Add custom WebSocket handlers
+
+**PeerTube >= 5.0**
+
+You can create custom WebSocket servers (like [ws](https://github.com/websockets/ws) for example) using `registerWebSocketRoute`:
+
+```js
+function register ({
+  registerWebSocketRoute,
+  peertubeHelpers
+}) {
+  const wss = new WebSocketServer({ noServer: true })
+
+  wss.on('connection', function connection(ws) {
+    peertubeHelpers.logger.info('WebSocket connected!')
+
+    setInterval(() => {
+      ws.send('WebSocket message sent by server');
+    }, 1000)
+  })
+
+  registerWebSocketRoute({
+    route: '/my-websocket-route',
+
+    handler: (request, socket, head) => {
+      wss.handleUpgrade(request, socket, head, ws => {
+        wss.emit('connection', ws, request)
+      })
+    }
+  })
+}
+```
+
+The `my-websocket-route` route can be accessed using:
+ * `/plugins/:pluginName/:pluginVersion/ws/my-websocket-route`
+ * Or `/plugins/:pluginName/ws/my-websocket-route`
 
 #### Add external auth methods
 
@@ -914,7 +952,10 @@ If you want to write modern JavaScript, please use a transpiler like [Babel](htt
 
 **Typescript**
 
-If you want to use __Typescript__, you can add __PeerTube__ types as dev dependencies:
+The easiest way to use __Typescript__ for both front-end and backend code is to clone [peertube-plugin-quickstart-typescript](https://github.com/JohnXLivingston/peertube-plugin-quickstart-typescript/) (also available on [framagit](https://framagit.org/Livingston/peertube-plugin-quickstart-typescript/)) instead of `peertube-plugin-quickstart`.
+Please read carefully the [README file](https://github.com/JohnXLivingston/peertube-plugin-quickstart-typescript/blob/main/README.md), as there are some other differences with `peertube-plugin-quickstart` (using SCSS instead of CSS, linting rules, ...).
+
+If you don't want to use `peertube-plugin-quickstart-typescript`, you can also manually add a dev dependency to __Peertube__ types:
 
 ```
 npm install --save-dev @peertube/peertube-types

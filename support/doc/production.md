@@ -115,8 +115,14 @@ $ cd /var/www/peertube
 $ sudo -u peertube cp peertube-latest/config/production.yaml.example config/production.yaml
 ```
 
-Then edit the `config/production.yaml` file according to your webserver
-and database configuration (`webserver`, `database`, `redis`, `smtp` and `admin.email` sections in particular).
+Then edit the `config/production.yaml` file according to your webserver and database configuration. In particular:
+ * `webserver`: Reverse proxy public information
+ * `secrets`: Secret strings you must generate manually (PeerTube version >= 5.0)
+ * `database`: PostgreSQL settings
+ * `redis`: Redis settings
+ * `smtp`: If you want to use emails
+ * `admin.email`: To correctly fill `root` user email
+
 Keys defined in `config/production.yaml` will override keys defined in `config/default.yaml`.
 
 **PeerTube does not support webserver host change**. Even though [PeerTube CLI can help you to switch hostname](https://docs.joinpeertube.org/maintain-tools?id=update-hostjs) there's no official support for that since it is a risky operation that might result in unforeseen errors.
@@ -160,12 +166,6 @@ $ sudo certbot certonly --standalone --post-hook "systemctl restart nginx"
 $ sudo systemctl reload nginx
 ```
 
-Now you have the certificates you can reload nginx:
-
-```bash
-$ sudo systemctl reload nginx
-```
-
 Certbot should have installed a cron to automatically renew your certificate.
 Since our nginx template supports webroot renewal, we suggest you to update the renewal config file to use the `webroot` authenticator:
 
@@ -174,6 +174,8 @@ $ # Replace authenticator = standalone by authenticator = webroot
 $ # Add webroot_path = /var/www/certbot
 $ sudo vim /etc/letsencrypt/renewal/your-domain.com.conf
 ```
+
+If you plan to have many concurrent viewers on your PeerTube instance, consider increasing `worker_connections` value: https://nginx.org/en/docs/ngx_core_module.html#worker_connections.
 
 **FreeBSD**
 On FreeBSD you can use [Dehydrated](https://dehydrated.io/) `security/dehydrated` for [Let's Encrypt](https://letsencrypt.org/)
@@ -287,7 +289,7 @@ Now your instance is up you can:
 
 ### PeerTube instance
 
-**Check the changelog (in particular BREAKING CHANGES!):** https://github.com/Chocobozzz/PeerTube/blob/develop/CHANGELOG.md
+**Check the changelog (in particular the *IMPORTANT NOTES* section):** https://github.com/Chocobozzz/PeerTube/blob/develop/CHANGELOG.md
 
 #### Auto
 

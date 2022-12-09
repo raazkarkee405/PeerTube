@@ -115,6 +115,7 @@ async function completeVideoCheck (
     // Transcoding enabled: extension will always be .mp4
     if (attributes.files.length > 1) extension = '.mp4'
 
+    expect(file.id).to.exist
     expect(file.magnetUri).to.have.lengthOf.above(2)
 
     expect(file.torrentDownloadUrl).to.match(new RegExp(`http://${host}/download/torrents/${uuidRegex}-${file.resolution.id}.torrent`))
@@ -124,9 +125,9 @@ async function completeVideoCheck (
     expect(file.fileDownloadUrl).to.match(new RegExp(`http://${originHost}/download/videos/${uuidRegex}-${file.resolution.id}${extension}`))
 
     await Promise.all([
-      makeRawRequest(file.torrentUrl, 200),
-      makeRawRequest(file.torrentDownloadUrl, 200),
-      makeRawRequest(file.metadataUrl, 200)
+      makeRawRequest({ url: file.torrentUrl, expectedStatus: HttpStatusCode.OK_200 }),
+      makeRawRequest({ url: file.torrentDownloadUrl, expectedStatus: HttpStatusCode.OK_200 }),
+      makeRawRequest({ url: file.metadataUrl, expectedStatus: HttpStatusCode.OK_200 })
     ])
 
     expect(file.resolution.id).to.equal(attributeFile.resolution)
@@ -240,16 +241,6 @@ async function uploadRandomVideoOnServers (
   return res
 }
 
-function getAllFiles (video: VideoDetails) {
-  const files = video.files
-
-  if (video.streamingPlaylists[0]) {
-    return files.concat(video.streamingPlaylists[0].files)
-  }
-
-  return files
-}
-
 // ---------------------------------------------------------------------------
 
 export {
@@ -257,6 +248,5 @@ export {
   checkUploadVideoParam,
   uploadRandomVideoOnServers,
   checkVideoFilesWereRemoved,
-  saveVideoInServers,
-  getAllFiles
+  saveVideoInServers
 }

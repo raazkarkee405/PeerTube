@@ -3,9 +3,8 @@
 import { expect } from 'chai'
 import { createReadStream, stat } from 'fs-extra'
 import got, { Response as GotResponse } from 'got'
-import { omit } from 'lodash'
 import validator from 'validator'
-import { buildAbsoluteFixturePath, pick, wait } from '@shared/core-utils'
+import { buildAbsoluteFixturePath, getAllPrivacies, omit, pick, wait } from '@shared/core-utils'
 import { buildUUID } from '@shared/extra-utils'
 import {
   HttpStatusCode,
@@ -16,14 +15,15 @@ import {
   VideoCreateResult,
   VideoDetails,
   VideoFileMetadata,
+  VideoInclude,
   VideoPrivacy,
   VideosCommonQuery,
   VideoTranscodingCreate
 } from '@shared/models'
+import { VideoSource } from '@shared/models/videos/video-source'
 import { unwrapBody } from '../requests'
 import { waitJobs } from '../server'
 import { AbstractCommand, OverrideCommandOptions } from '../shared'
-import { VideoSource } from '@shared/models/videos/video-source'
 
 export type VideoEdit = Partial<Omit<VideoCreate, 'thumbnailfile' | 'previewfile'>> & {
   fixture?: string
@@ -235,6 +235,22 @@ export class VideosCommand extends AbstractCommand {
     })
   }
 
+  listAllForAdmin (options: OverrideCommandOptions & VideosCommonQuery = {}) {
+    const include = VideoInclude.NOT_PUBLISHED_STATE | VideoInclude.BLACKLISTED | VideoInclude.BLOCKED_OWNER
+    const nsfw = 'both'
+    const privacyOneOf = getAllPrivacies()
+
+    return this.list({
+      ...options,
+
+      include,
+      nsfw,
+      privacyOneOf,
+
+      token: this.buildCommonRequestToken({ ...options, implicitToken: true })
+    })
+  }
+
   listByAccount (options: OverrideCommandOptions & VideosCommonQuery & {
     handle: string
   }) {
@@ -343,8 +359,9 @@ export class VideosCommand extends AbstractCommand {
   async upload (options: OverrideCommandOptions & {
     attributes?: VideoEdit
     mode?: 'legacy' | 'resumable' // default legacy
+    waitTorrentGeneration?: boolean // default true
   } = {}) {
-    const { mode = 'legacy' } = options
+    const { mode = 'legacy', waitTorrentGeneration = true } = options
     let defaultChannelId = 1
 
     try {
@@ -378,7 +395,7 @@ export class VideosCommand extends AbstractCommand {
 
     // Wait torrent generation
     const expectedStatus = this.buildExpectedStatus({ ...options, defaultExpectedStatus: HttpStatusCode.OK_200 })
-    if (expectedStatus === HttpStatusCode.OK_200) {
+    if (expectedStatus === HttpStatusCode.OK_200 && waitTorrentGeneration) {
       let video: VideoDetails
 
       do {
@@ -484,7 +501,7 @@ export class VideosCommand extends AbstractCommand {
       },
 
       // Fixture will be sent later
-      attaches: this.buildUploadAttaches(omit(options.attributes, 'fixture')),
+      attaches: this.buildUploadAttaches(omit(options.attributes, [ 'fixture' ])),
       implicitToken: true,
 
       defaultExpectedStatus: null
@@ -605,7 +622,7 @@ export class VideosCommand extends AbstractCommand {
 
   // ---------------------------------------------------------------------------
 
-  removeHLSFiles (options: OverrideCommandOptions & {
+  removeHLSPlaylist (options: OverrideCommandOptions & {
     videoId: number | string
   }) {
     const path = '/api/v1/videos/' + options.videoId + '/hls'
@@ -619,10 +636,40 @@ export class VideosCommand extends AbstractCommand {
     })
   }
 
-  removeWebTorrentFiles (options: OverrideCommandOptions & {
+  removeHLSFile (options: OverrideCommandOptions & {
+    videoId: number | string
+    fileId: number
+  }) {
+    const path = '/api/v1/videos/' + options.videoId + '/hls/' + options.fileId
+
+    return this.deleteRequest({
+      ...options,
+
+      path,
+      implicitToken: true,
+      defaultExpectedStatus: HttpStatusCode.NO_CONTENT_204
+    })
+  }
+
+  removeAllWebTorrentFiles (options: OverrideCommandOptions & {
     videoId: number | string
   }) {
     const path = '/api/v1/videos/' + options.videoId + '/webtorrent'
+
+    return this.deleteRequest({
+      ...options,
+
+      path,
+      implicitToken: true,
+      defaultExpectedStatus: HttpStatusCode.NO_CONTENT_204
+    })
+  }
+
+  removeWebTorrentFile (options: OverrideCommandOptions & {
+    videoId: number | string
+    fileId: number
+  }) {
+    const path = '/api/v1/videos/' + options.videoId + '/webtorrent/' + options.fileId
 
     return this.deleteRequest({
       ...options,
@@ -663,6 +710,7 @@ export class VideosCommand extends AbstractCommand {
       'categoryOneOf',
       'licenceOneOf',
       'languageOneOf',
+      'privacyOneOf',
       'tagsOneOf',
       'tagsAllOf',
       'isLocal',

@@ -1,10 +1,11 @@
 import { HybridLoaderSettings } from '@peertube/p2p-media-loader-core'
 import { HlsJsEngineSettings } from '@peertube/p2p-media-loader-hlsjs'
+import { logger } from '@root-helpers/logger'
 import { LiveVideoLatencyMode } from '@shared/models'
 import { getAverageBandwidthInStore } from '../../peertube-player-local-storage'
 import { P2PMediaLoader, P2PMediaLoaderPluginOptions } from '../../types'
 import { PeertubePlayerManagerOptions } from '../../types/manager-options'
-import { getRtcConfig } from '../common'
+import { getRtcConfig, isSameOrigin } from '../common'
 import { RedundancyUrlManager } from '../p2p-media-loader/redundancy-url-manager'
 import { segmentUrlBuilderFactory } from '../p2p-media-loader/segment-url-builder'
 import { segmentValidatorFactory } from '../p2p-media-loader/segment-validator'
@@ -18,15 +19,21 @@ export class HLSOptionsBuilder {
 
   }
 
-  getPluginOptions () {
+  async getPluginOptions () {
     const commonOptions = this.options.common
 
     const redundancyUrlManager = new RedundancyUrlManager(this.options.p2pMediaLoader.redundancyBaseUrls)
 
-    const p2pMediaLoaderConfig = this.getP2PMediaLoaderOptions(redundancyUrlManager)
+    const p2pMediaLoaderConfig = await this.options.pluginsManager.runHook(
+      'filter:internal.player.p2p-media-loader.options.result',
+      this.getP2PMediaLoaderOptions(redundancyUrlManager)
+    )
     const loader = new this.p2pMediaLoaderModule.Engine(p2pMediaLoaderConfig).createLoaderClass() as P2PMediaLoader
 
     const p2pMediaLoader: P2PMediaLoaderPluginOptions = {
+      requiresAuth: commonOptions.requiresAuth,
+      videoFileToken: commonOptions.videoFileToken,
+
       redundancyUrlManager,
       type: 'application/x-mpegURL',
       startTime: commonOptions.startTime,
@@ -61,7 +68,7 @@ export class HLSOptionsBuilder {
   private getP2PMediaLoaderOptions (redundancyUrlManager: RedundancyUrlManager): HlsJsEngineSettings {
     let consumeOnly = false
     if ((navigator as any)?.connection?.type === 'cellular') {
-      console.log('We are on a cellular connection: disabling seeding.')
+      logger.info('We are on a cellular connection: disabling seeding.')
       consumeOnly = true
     }
 
@@ -80,8 +87,22 @@ export class HLSOptionsBuilder {
         simultaneousHttpDownloads: 1,
         httpFailedSegmentTimeout: 1000,
 
-        segmentValidator: segmentValidatorFactory(this.options.p2pMediaLoader.segmentsSha256Url, this.options.common.isLive),
-        segmentUrlBuilder: segmentUrlBuilderFactory(redundancyUrlManager, 1),
+        xhrSetup: (xhr, url) => {
+          if (!this.options.common.requiresAuth) return
+          if (!isSameOrigin(this.options.common.serverUrl, url)) return
+
+          xhr.setRequestHeader('Authorization', this.options.common.authorizationHeader())
+        },
+
+        segmentValidator: segmentValidatorFactory({
+          segmentsSha256Url: this.options.p2pMediaLoader.segmentsSha256Url,
+          isLive: this.options.common.isLive,
+          authorizationHeader: this.options.common.authorizationHeader,
+          requiresAuth: this.options.common.requiresAuth,
+          serverUrl: this.options.common.serverUrl
+        }),
+
+        segmentUrlBuilder: segmentUrlBuilderFactory(redundancyUrlManager),
 
         useP2P: this.options.common.p2pEnabled,
         consumeOnly,
@@ -122,6 +143,7 @@ export class HLSOptionsBuilder {
   private getP2PMediaLoaderVODOptions (): Partial<HybridLoaderSettings> {
     return {
       requiredSegmentsPriority: 3,
+      skipSegmentBuilderPriority: 1,
 
       cachedSegmentExpiration: 86400000,
       cachedSegmentsCount: 100,
@@ -157,6 +179,7 @@ export class HLSOptionsBuilder {
       ...base,
 
       abrEwmaDefaultEstimate: averageBandwidth * 8, // We want bit/s
+      backBufferLength: 90,
       startLevel: -1,
       testBandwidth: false,
       debug: false

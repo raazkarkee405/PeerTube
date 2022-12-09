@@ -91,11 +91,11 @@ type VideoJSCaption = {
 type PeerTubePluginOptions = {
   mode: PlayerMode
 
-  autoplay: boolean
+  autoplay: videojs.Autoplay
   videoDuration: number
 
   videoViewUrl: string
-  authorizationHeader?: string
+  authorizationHeader?: () => string
 
   subtitle?: string
 
@@ -106,6 +106,12 @@ type PeerTubePluginOptions = {
 
   isLive: boolean
 
+  videoUUID: string
+}
+
+type MetricsPluginOptions = {
+  mode: PlayerMode
+  metricsUrl: string
   videoUUID: string
 }
 
@@ -137,7 +143,7 @@ type PeerTubeP2PInfoButtonOptions = {
 type WebtorrentPluginOptions = {
   playerElement: HTMLVideoElement
 
-  autoplay: boolean
+  autoplay: videojs.Autoplay
   videoDuration: number
 
   videoFiles: VideoFile[]
@@ -145,6 +151,11 @@ type WebtorrentPluginOptions = {
   startTime: number | string
 
   playerRefusedP2P: boolean
+
+  requiresAuth: boolean
+  videoFileToken: () => string
+
+  buildWebSeedUrls: (file: VideoFile) => string[]
 }
 
 type P2PMediaLoaderPluginOptions = {
@@ -155,6 +166,9 @@ type P2PMediaLoaderPluginOptions = {
   startTime: number | string
 
   loader: P2PMediaLoader
+
+  requiresAuth: boolean
+  videoFileToken: () => string
 }
 
 export type P2PMediaLoader = {
@@ -165,6 +179,7 @@ type VideoJSPluginOptions = {
   playlist?: PlaylistPluginOptions
 
   peertube: PeerTubePluginOptions
+  metrics: MetricsPluginOptions
 
   webtorrent?: WebtorrentPluginOptions
 
@@ -197,9 +212,7 @@ type PlayerNetworkInfo = {
 
   http: {
     downloadSpeed: number
-    uploadSpeed: number
     downloaded: number
-    uploaded: number
   }
 
   p2p: {
@@ -227,6 +240,7 @@ export {
   ResolutionUpdateData,
   AutoResolutionUpdateData,
   PlaylistPluginOptions,
+  MetricsPluginOptions,
   VideoJSCaption,
   PeerTubePluginOptions,
   WebtorrentPluginOptions,

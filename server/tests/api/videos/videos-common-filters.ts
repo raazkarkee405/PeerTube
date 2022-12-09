@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
 
-import 'mocha'
 import { expect } from 'chai'
 import { pick } from '@shared/core-utils'
 import { HttpStatusCode, UserRole, Video, VideoDetails, VideoInclude, VideoPrivacy } from '@shared/models'
@@ -24,7 +23,7 @@ describe('Test videos filter', function () {
   // ---------------------------------------------------------------
 
   before(async function () {
-    this.timeout(160000)
+    this.timeout(240000)
 
     servers = await createMultipleServers(2)
 
@@ -233,7 +232,7 @@ describe('Test videos filter', function () {
     })
 
     it('Should display only remote videos', async function () {
-      this.timeout(40000)
+      this.timeout(120000)
 
       await servers[1].videos.upload({ attributes: { name: 'remote video' } })
 

@@ -7,6 +7,8 @@ import { Debug, SendDebugCommand } from '@shared/models'
 import { HttpStatusCode } from '../../../../shared/models/http/http-error-codes'
 import { UserRight } from '../../../../shared/models/users'
 import { authenticate, ensureUserHasRight } from '../../../middlewares'
+import { VideoChannelSyncLatestScheduler } from '@server/lib/schedulers/video-channel-sync-latest-scheduler'
+import { UpdateVideosScheduler } from '@server/lib/schedulers/update-videos-scheduler'
 
 const debugRouter = express.Router()
 
@@ -43,7 +45,9 @@ async function runCommand (req: express.Request, res: express.Response) {
   const processors: { [id in SendDebugCommand['command']]: () => Promise<any> } = {
     'remove-dandling-resumable-uploads': () => RemoveDanglingResumableUploadsScheduler.Instance.execute(),
     'process-video-views-buffer': () => VideoViewsBufferScheduler.Instance.execute(),
-    'process-video-viewers': () => VideoViewsManager.Instance.processViewerStats()
+    'process-video-viewers': () => VideoViewsManager.Instance.processViewerStats(),
+    'process-update-videos-scheduler': () => UpdateVideosScheduler.Instance.execute(),
+    'process-video-channel-sync-latest': () => VideoChannelSyncLatestScheduler.Instance.execute()
   }
 
   await processors[body.command]()

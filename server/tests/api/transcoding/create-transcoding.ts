@@ -1,9 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
 
-import 'mocha'
-import * as chai from 'chai'
+import { expect } from 'chai'
 import { checkResolutionsInMasterPlaylist, expectStartWith } from '@server/tests/shared'
-import { areObjectStorageTestsDisabled } from '@shared/core-utils'
+import { areMockObjectStorageTestsDisabled } from '@shared/core-utils'
 import { HttpStatusCode, VideoDetails } from '@shared/models'
 import {
   cleanupTests,
@@ -18,27 +17,25 @@ import {
   waitJobs
 } from '@shared/server-commands'
 
-const expect = chai.expect
-
 async function checkFilesInObjectStorage (video: VideoDetails) {
   for (const file of video.files) {
-    expectStartWith(file.fileUrl, ObjectStorageCommand.getWebTorrentBaseUrl())
-    await makeRawRequest(file.fileUrl, HttpStatusCode.OK_200)
+    expectStartWith(file.fileUrl, ObjectStorageCommand.getMockWebTorrentBaseUrl())
+    await makeRawRequest({ url: file.fileUrl, expectedStatus: HttpStatusCode.OK_200 })
   }
 
   if (video.streamingPlaylists.length === 0) return
 
   const hlsPlaylist = video.streamingPlaylists[0]
   for (const file of hlsPlaylist.files) {
-    expectStartWith(file.fileUrl, ObjectStorageCommand.getPlaylistBaseUrl())
-    await makeRawRequest(file.fileUrl, HttpStatusCode.OK_200)
+    expectStartWith(file.fileUrl, ObjectStorageCommand.getMockPlaylistBaseUrl())
+    await makeRawRequest({ url: file.fileUrl, expectedStatus: HttpStatusCode.OK_200 })
   }
 
-  expectStartWith(hlsPlaylist.playlistUrl, ObjectStorageCommand.getPlaylistBaseUrl())
-  await makeRawRequest(hlsPlaylist.playlistUrl, HttpStatusCode.OK_200)
+  expectStartWith(hlsPlaylist.playlistUrl, ObjectStorageCommand.getMockPlaylistBaseUrl())
+  await makeRawRequest({ url: hlsPlaylist.playlistUrl, expectedStatus: HttpStatusCode.OK_200 })
 
-  expectStartWith(hlsPlaylist.segmentsSha256Url, ObjectStorageCommand.getPlaylistBaseUrl())
-  await makeRawRequest(hlsPlaylist.segmentsSha256Url, HttpStatusCode.OK_200)
+  expectStartWith(hlsPlaylist.segmentsSha256Url, ObjectStorageCommand.getMockPlaylistBaseUrl())
+  await makeRawRequest({ url: hlsPlaylist.segmentsSha256Url, expectedStatus: HttpStatusCode.OK_200 })
 }
 
 function runTests (objectStorage: boolean) {
@@ -46,11 +43,13 @@ function runTests (objectStorage: boolean) {
   let videoUUID: string
   let publishedAt: string
 
+  let shouldBeDeleted: string[]
+
   before(async function () {
     this.timeout(120000)
 
     const config = objectStorage
-      ? ObjectStorageCommand.getDefaultConfig()
+      ? ObjectStorageCommand.getDefaultMockConfig()
       : {}
 
     // Run server 2 to have transcoding enabled
@@ -61,7 +60,7 @@ function runTests (objectStorage: boolean) {
 
     await doubleFollow(servers[0], servers[1])
 
-    if (objectStorage) await ObjectStorageCommand.prepareDefaultBuckets()
+    if (objectStorage) await ObjectStorageCommand.prepareDefaultMockBuckets()
 
     const { shortUUID } = await servers[0].videos.quickUpload({ name: 'video' })
     videoUUID = shortUUID
@@ -120,7 +119,7 @@ function runTests (objectStorage: boolean) {
   it('Should generate WebTorrent from HLS only video', async function () {
     this.timeout(60000)
 
-    await servers[0].videos.removeWebTorrentFiles({ videoId: videoUUID })
+    await servers[0].videos.removeAllWebTorrentFiles({ videoId: videoUUID })
     await waitJobs(servers)
 
     await servers[0].videos.runTranscoding({ videoId: videoUUID, transcodingType: 'webtorrent' })
@@ -140,7 +139,7 @@ function runTests (objectStorage: boolean) {
   it('Should only generate WebTorrent', async function () {
     this.timeout(60000)
 
-    await servers[0].videos.removeHLSFiles({ videoId: videoUUID })
+    await servers[0].videos.removeHLSPlaylist({ videoId: videoUUID })
     await waitJobs(servers)
 
     await servers[0].videos.runTranscoding({ videoId: videoUUID, transcodingType: 'webtorrent' })
@@ -187,6 +186,12 @@ function runTests (objectStorage: boolean) {
       expect(videoDetails.streamingPlaylists[0].files).to.have.lengthOf(1)
 
       if (objectStorage) await checkFilesInObjectStorage(videoDetails)
+
+      shouldBeDeleted = [
+        videoDetails.streamingPlaylists[0].files[0].fileUrl,
+        videoDetails.streamingPlaylists[0].playlistUrl,
+        videoDetails.streamingPlaylists[0].segmentsSha256Url
+      ]
     }
 
     await servers[0].config.updateExistingSubConfig({
@@ -227,6 +232,12 @@ function runTests (objectStorage: boolean) {
     }
   })
 
+  it('Should have correctly deleted previous files', async function () {
+    for (const fileUrl of shouldBeDeleted) {
+      await makeRawRequest({ url: fileUrl, expectedStatus: HttpStatusCode.NOT_FOUND_404 })
+    }
+  })
+
   it('Should not have updated published at attributes', async function () {
     const video = await servers[0].videos.get({ id: videoUUID })
 
@@ -245,7 +256,7 @@ describe('Test create transcoding jobs from API', function () {
   })
 
   describe('On object storage', function () {
-    if (areObjectStorageTestsDisabled()) return
+    if (areMockObjectStorageTestsDisabled()) return
 
     runTests(true)
   })

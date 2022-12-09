@@ -2,8 +2,9 @@
 import { filter, throttleTime } from 'rxjs'
 import { Injectable } from '@angular/core'
 import { AuthService, AuthStatus } from '@app/core/auth'
-import { UserLocalStorageKeys, UserTokens } from '@root-helpers/users'
 import { getBoolOrDefault } from '@root-helpers/local-storage-utils'
+import { logger } from '@root-helpers/logger'
+import { UserLocalStorageKeys, OAuthUserTokens } from '@root-helpers/users'
 import { UserRole, UserUpdateMe } from '@shared/models'
 import { NSFWPolicyType } from '@shared/models/videos'
 import { ServerService } from '../server'
@@ -23,7 +24,7 @@ export class UserLocalStorageService {
 
         this.setLoggedInUser(user)
         this.setUserInfo(user)
-        this.setTokens(user.tokens)
+        this.setTokens(user.oauthTokens)
       }
     })
 
@@ -42,7 +43,7 @@ export class UserLocalStorageService {
         next: () => {
           const user = this.authService.getUser()
 
-          this.setTokens(user.tokens)
+          this.setTokens(user.oauthTokens)
         }
       })
   }
@@ -58,7 +59,10 @@ export class UserLocalStorageService {
       id: parseInt(this.localStorageService.getItem(UserLocalStorageKeys.ID), 10),
       username: this.localStorageService.getItem(UserLocalStorageKeys.USERNAME),
       email: this.localStorageService.getItem(UserLocalStorageKeys.EMAIL),
-      role: parseInt(this.localStorageService.getItem(UserLocalStorageKeys.ROLE), 10) as UserRole,
+      role: {
+        id: parseInt(this.localStorageService.getItem(UserLocalStorageKeys.ROLE), 10) as UserRole,
+        label: ''
+      },
 
       ...this.getUserInfo()
     }
@@ -68,12 +72,14 @@ export class UserLocalStorageService {
     id: number
     username: string
     email: string
-    role: UserRole
+    role: {
+      id: UserRole
+    }
   }) {
     this.localStorageService.setItem(UserLocalStorageKeys.ID, user.id.toString())
     this.localStorageService.setItem(UserLocalStorageKeys.USERNAME, user.username)
     this.localStorageService.setItem(UserLocalStorageKeys.EMAIL, user.email)
-    this.localStorageService.setItem(UserLocalStorageKeys.ROLE, user.role.toString())
+    this.localStorageService.setItem(UserLocalStorageKeys.ROLE, user.role.id.toString())
   }
 
   flushLoggedInUser () {
@@ -95,7 +101,7 @@ export class UserLocalStorageService {
         : null
     } catch (err) {
       videoLanguages = null
-      console.error('Cannot parse desired video languages from localStorage.', err)
+      logger.error('Cannot parse desired video languages from localStorage.', err)
     }
 
     const htmlConfig = this.server.getHTMLConfig()
@@ -142,7 +148,7 @@ export class UserLocalStorageService {
 
         this.localStorageService.setItem(key, localStorageValue)
       } catch (err) {
-        console.error(`Cannot set ${key}->${value} in localStorage. Likely due to a value impossible to stringify.`, err)
+        logger.error(`Cannot set ${key}->${value} in localStorage. Likely due to a value impossible to stringify.`, err)
       }
     }
   }
@@ -173,14 +179,14 @@ export class UserLocalStorageService {
   // ---------------------------------------------------------------------------
 
   getTokens () {
-    return UserTokens.getUserTokens(this.localStorageService)
+    return OAuthUserTokens.getUserTokens(this.localStorageService)
   }
 
-  setTokens (tokens: UserTokens) {
-    UserTokens.saveToLocalStorage(this.localStorageService, tokens)
+  setTokens (tokens: OAuthUserTokens) {
+    OAuthUserTokens.saveToLocalStorage(this.localStorageService, tokens)
   }
 
   flushTokens () {
-    UserTokens.flushLocalStorage(this.localStorageService)
+    OAuthUserTokens.flushLocalStorage(this.localStorageService)
   }
 }

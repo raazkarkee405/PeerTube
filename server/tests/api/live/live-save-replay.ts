@@ -1,7 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
 
-import 'mocha'
-import * as chai from 'chai'
+import { expect } from 'chai'
 import { FfmpegCommand } from 'fluent-ffmpeg'
 import { checkLiveCleanup } from '@server/tests/shared'
 import { wait } from '@shared/core-utils'
@@ -22,8 +21,6 @@ import {
   waitUntilLiveReplacedByReplayOnAllServers,
   waitUntilLiveWaitingOnAllServers
 } from '@shared/server-commands'
-
-const expect = chai.expect
 
 describe('Save replay setting', function () {
   let servers: PeerTubeServer[] = []
@@ -189,7 +186,7 @@ describe('Save replay setting', function () {
       await checkVideoState(liveVideoUUID, VideoState.LIVE_ENDED)
 
       // No resolutions saved since we did not save replay
-      await checkLiveCleanup(servers[0], liveVideoUUID, [])
+      await checkLiveCleanup({ server: servers[0], videoUUID: liveVideoUUID, permanent: false })
     })
 
     it('Should have appropriate ended session', async function () {
@@ -206,6 +203,7 @@ describe('Save replay setting', function () {
       expect(session.endDate).to.exist
       expect(new Date(session.endDate)).to.be.above(sessionEndDateMin)
 
+      expect(session.saveReplay).to.be.false
       expect(session.error).to.not.exist
       expect(session.replayVideo).to.not.exist
     })
@@ -222,7 +220,7 @@ describe('Save replay setting', function () {
 
       await wait(5000)
       await waitJobs(servers)
-      await checkLiveCleanup(servers[0], liveVideoUUID, [])
+      await checkLiveCleanup({ server: servers[0], videoUUID: liveVideoUUID, permanent: false })
     })
 
     it('Should have blacklisted session error', async function () {
@@ -240,7 +238,7 @@ describe('Save replay setting', function () {
       await publishLiveAndDelete({ permanent: false, replay: false })
 
       await checkVideosExist(liveVideoUUID, false, HttpStatusCode.NOT_FOUND_404)
-      await checkLiveCleanup(servers[0], liveVideoUUID, [])
+      await checkLiveCleanup({ server: servers[0], videoUUID: liveVideoUUID, permanent: false })
     })
   })
 
@@ -272,6 +270,11 @@ describe('Save replay setting', function () {
     it('Should correctly have saved the live and federated it after the streaming', async function () {
       this.timeout(30000)
 
+      const session = await servers[0].live.findLatestSession({ videoId: liveVideoUUID })
+      expect(session.endDate).to.not.exist
+      expect(session.endingProcessed).to.be.false
+      expect(session.saveReplay).to.be.true
+
       await stopFfmpeg(ffmpegCommand)
 
       await waitUntilLiveReplacedByReplayOnAllServers(servers, liveVideoUUID)
@@ -291,6 +294,8 @@ describe('Save replay setting', function () {
       expect(session.endDate).to.exist
 
       expect(session.error).to.not.exist
+      expect(session.saveReplay).to.be.true
+      expect(session.endingProcessed).to.be.true
 
       expect(session.replayVideo).to.exist
       expect(session.replayVideo.id).to.exist
@@ -312,7 +317,7 @@ describe('Save replay setting', function () {
     })
 
     it('Should have cleaned up the live files', async function () {
-      await checkLiveCleanup(servers[0], liveVideoUUID, [ 720 ])
+      await checkLiveCleanup({ server: servers[0], videoUUID: liveVideoUUID, permanent: false, savedResolutions: [ 720 ] })
     })
 
     it('Should correctly terminate the stream on blacklist and blacklist the saved replay video', async function () {
@@ -327,7 +332,7 @@ describe('Save replay setting', function () {
 
       await wait(5000)
       await waitJobs(servers)
-      await checkLiveCleanup(servers[0], liveVideoUUID, [ 720 ])
+      await checkLiveCleanup({ server: servers[0], videoUUID: liveVideoUUID, permanent: false, savedResolutions: [ 720 ] })
     })
 
     it('Should correctly terminate the stream on delete and delete the video', async function () {
@@ -336,7 +341,7 @@ describe('Save replay setting', function () {
       await publishLiveAndDelete({ permanent: false, replay: true })
 
       await checkVideosExist(liveVideoUUID, false, HttpStatusCode.NOT_FOUND_404)
-      await checkLiveCleanup(servers[0], liveVideoUUID, [])
+      await checkLiveCleanup({ server: servers[0], videoUUID: liveVideoUUID, permanent: false })
     })
   })
 
@@ -408,7 +413,7 @@ describe('Save replay setting', function () {
     })
 
     it('Should have cleaned up the live files', async function () {
-      await checkLiveCleanup(servers[0], liveVideoUUID, [])
+      await checkLiveCleanup({ server: servers[0], videoUUID: liveVideoUUID, permanent: false })
     })
 
     it('Should correctly terminate the stream on blacklist and blacklist the saved replay video', async function () {
@@ -427,7 +432,7 @@ describe('Save replay setting', function () {
         await servers[1].videos.get({ id: videoId, expectedStatus: HttpStatusCode.NOT_FOUND_404 })
       }
 
-      await checkLiveCleanup(servers[0], liveVideoUUID, [])
+      await checkLiveCleanup({ server: servers[0], videoUUID: liveVideoUUID, permanent: false })
     })
 
     it('Should correctly terminate the stream on delete and not save the video', async function () {
@@ -439,7 +444,7 @@ describe('Save replay setting', function () {
       expect(replay).to.not.exist
 
       await checkVideosExist(liveVideoUUID, false, HttpStatusCode.NOT_FOUND_404)
-      await checkLiveCleanup(servers[0], liveVideoUUID, [])
+      await checkLiveCleanup({ server: servers[0], videoUUID: liveVideoUUID, permanent: false })
     })
   })
 

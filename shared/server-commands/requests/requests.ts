@@ -3,7 +3,7 @@
 import { decode } from 'querystring'
 import request from 'supertest'
 import { URL } from 'url'
-import { buildAbsoluteFixturePath } from '@shared/core-utils'
+import { buildAbsoluteFixturePath, pick } from '@shared/core-utils'
 import { HttpStatusCode } from '@shared/models'
 
 export type CommonRequestParams = {
@@ -21,10 +21,22 @@ export type CommonRequestParams = {
   expectedStatus?: HttpStatusCode
 }
 
-function makeRawRequest (url: string, expectedStatus?: HttpStatusCode, range?: string) {
-  const { host, protocol, pathname } = new URL(url)
+function makeRawRequest (options: {
+  url: string
+  token?: string
+  expectedStatus?: HttpStatusCode
+  range?: string
+  query?: { [ id: string ]: string }
+}) {
+  const { host, protocol, pathname } = new URL(options.url)
 
-  return makeGetRequest({ url: `${protocol}//${host}`, path: pathname, expectedStatus, range })
+  return makeGetRequest({
+    url: `${protocol}//${host}`,
+    path: pathname,
+    contentType: undefined,
+
+    ...pick(options, [ 'expectedStatus', 'range', 'token', 'query' ])
+  })
 }
 
 function makeGetRequest (options: CommonRequestParams & {
@@ -134,7 +146,12 @@ function unwrapText (test: request.Test): Promise<string> {
 function unwrapBodyOrDecodeToJSON <T> (test: request.Test): Promise<T> {
   return test.then(res => {
     if (res.body instanceof Buffer) {
-      return JSON.parse(new TextDecoder().decode(res.body))
+      try {
+        return JSON.parse(new TextDecoder().decode(res.body))
+      } catch (err) {
+        console.error('Cannot decode JSON.', res.body)
+        throw err
+      }
     }
 
     return res.body
@@ -172,7 +189,6 @@ function buildRequest (req: request.Test, options: CommonRequestParams) {
   if (options.accept) req.set('Accept', options.accept)
   if (options.host) req.set('Host', options.host)
   if (options.redirects) req.redirects(options.redirects)
-  if (options.expectedStatus) req.expect(options.expectedStatus)
   if (options.xForwardedFor) req.set('X-Forwarded-For', options.xForwardedFor)
   if (options.type) req.type(options.type)
 
@@ -180,7 +196,15 @@ function buildRequest (req: request.Test, options: CommonRequestParams) {
     req.set(name, options.headers[name])
   })
 
-  return req
+  return req.expect((res) => {
+    if (options.expectedStatus && res.status !== options.expectedStatus) {
+      throw new Error(`Expected status ${options.expectedStatus}, got ${res.status}. ` +
+        `\nThe server responded this error: "${res.body?.error ?? res.text}".\n` +
+        'You may take a closer look at the logs. To see how to do so, check out this page: ' +
+        'https://github.com/Chocobozzz/PeerTube/blob/develop/support/doc/development/tests.md#debug-server-logs')
+    }
+    return res
+  })
 }
 
 function buildFields (req: request.Test, fields: { [ fieldName: string ]: any }, namespace?: string) {

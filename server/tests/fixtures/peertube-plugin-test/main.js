@@ -1,11 +1,16 @@
 async function register ({ registerHook, registerSetting, settingsManager, storageManager, peertubeHelpers }) {
   const actionHooks = [
     'action:application.listening',
+    'action:notifier.notification.created',
 
     'action:api.video.updated',
     'action:api.video.deleted',
     'action:api.video.uploaded',
     'action:api.video.viewed',
+
+    'action:api.video-channel.created',
+    'action:api.video-channel.updated',
+    'action:api.video-channel.deleted',
 
     'action:api.live-video.created',
 
@@ -93,6 +98,29 @@ async function register ({ registerHook, registerSetting, settingsManager, stora
     }
   })
 
+  // ---------------------------------------------------------------------------
+
+  registerHook({
+    target: 'filter:api.video-channels.list.params',
+    handler: obj => addToCount(obj, 1)
+  })
+
+  registerHook({
+    target: 'filter:api.video-channels.list.result',
+    handler: obj => addToTotal(obj, 1)
+  })
+
+  registerHook({
+    target: 'filter:api.video-channel.get.result',
+    handler: channel => {
+      channel.name += ' <3'
+
+      return channel
+    }
+  })
+
+  // ---------------------------------------------------------------------------
+
   for (const hook of [ 'filter:api.video.upload.accept.result', 'filter:api.live-video.create.accept.result' ]) {
     registerHook({
       target: hook,
@@ -150,6 +178,8 @@ async function register ({ registerHook, registerSetting, settingsManager, stora
     }
   })
 
+  // ---------------------------------------------------------------------------
+
   registerHook({
     target: 'filter:api.video-thread.create.accept.result',
     handler: ({ accepted }, { commentBody }) => checkCommentBadWord(accepted, commentBody)
@@ -159,6 +189,13 @@ async function register ({ registerHook, registerSetting, settingsManager, stora
     target: 'filter:api.video-comment-reply.create.accept.result',
     handler: ({ accepted }, { commentBody }) => checkCommentBadWord(accepted, commentBody)
   })
+
+  registerHook({
+    target: 'filter:activity-pub.remote-video-comment.create.accept.result',
+    handler: ({ accepted }, { comment }) => checkCommentBadWord(accepted, comment)
+  })
+
+  // ---------------------------------------------------------------------------
 
   registerHook({
     target: 'filter:api.video-threads.list.params',
@@ -253,6 +290,36 @@ async function register ({ registerHook, registerSetting, settingsManager, stora
     }
   })
 
+  registerHook({
+    target: 'filter:job-queue.process.params',
+    handler: (object, context) => {
+      if (context.type !== 'video-studio-edition') return object
+
+      object.data.tasks = [
+        {
+          name: 'cut',
+          options: {
+            start: 0,
+            end: 1
+          }
+        }
+      ]
+
+      return object
+    }
+  })
+
+  registerHook({
+    target: 'filter:transcoding.auto.resolutions-to-transcode.result',
+    handler: (object, context) => {
+      if (context.video.name.includes('transcode-filter')) {
+        object = [ 100 ]
+      }
+
+      return object
+    }
+  })
+
   // Upload/import/live attributes
   for (const target of [
     'filter:api.video.upload.video-attribute.result',
@@ -284,7 +351,10 @@ async function register ({ registerHook, registerSetting, settingsManager, stora
       'filter:api.search.video-playlists.index.list.result',
 
       'filter:api.overviews.videos.list.params',
-      'filter:api.overviews.videos.list.result'
+      'filter:api.overviews.videos.list.result',
+
+      'filter:job-queue.process.params',
+      'filter:job-queue.process.result'
     ]
 
     for (const h of filterHooks) {

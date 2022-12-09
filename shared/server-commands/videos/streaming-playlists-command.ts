@@ -1,22 +1,50 @@
+import { wait } from '@shared/core-utils'
 import { HttpStatusCode } from '@shared/models'
-import { unwrapBody, unwrapTextOrDecode, unwrapBodyOrDecodeToJSON } from '../requests'
+import { unwrapBody, unwrapBodyOrDecodeToJSON, unwrapTextOrDecode } from '../requests'
 import { AbstractCommand, OverrideCommandOptions } from '../shared'
 
 export class StreamingPlaylistsCommand extends AbstractCommand {
 
-  get (options: OverrideCommandOptions & {
+  async get (options: OverrideCommandOptions & {
     url: string
-  }) {
-    return unwrapTextOrDecode(this.getRawRequest({
-      ...options,
 
-      url: options.url,
-      implicitToken: false,
-      defaultExpectedStatus: HttpStatusCode.OK_200
-    }))
+    videoFileToken?: string
+    reinjectVideoFileToken?: boolean
+
+    withRetry?: boolean // default false
+    currentRetry?: number
+  }) {
+    const { videoFileToken, reinjectVideoFileToken, withRetry, currentRetry = 1 } = options
+
+    try {
+      const result = await unwrapTextOrDecode(this.getRawRequest({
+        ...options,
+
+        url: options.url,
+        query: {
+          videoFileToken,
+          reinjectVideoFileToken
+        },
+        implicitToken: false,
+        defaultExpectedStatus: HttpStatusCode.OK_200
+      }))
+
+      return result
+    } catch (err) {
+      if (!withRetry || currentRetry > 5) throw err
+
+      await wait(100)
+
+      return this.get({
+        ...options,
+
+        withRetry,
+        currentRetry: currentRetry + 1
+      })
+    }
   }
 
-  getSegment (options: OverrideCommandOptions & {
+  getFragmentedSegment (options: OverrideCommandOptions & {
     url: string
     range?: string
   }) {

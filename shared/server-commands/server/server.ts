@@ -2,7 +2,7 @@ import { ChildProcess, fork } from 'child_process'
 import { copy } from 'fs-extra'
 import { join } from 'path'
 import { parallelTests, randomInt, root } from '@shared/core-utils'
-import { Video, VideoChannel, VideoCreateResult, VideoDetails } from '@shared/models'
+import { Video, VideoChannel, VideoChannelSync, VideoCreateResult, VideoDetails } from '@shared/models'
 import { BulkCommand } from '../bulk'
 import { CLICommand } from '../cli'
 import { CustomPagesCommand } from '../custom-pages'
@@ -13,12 +13,21 @@ import { AbusesCommand } from '../moderation'
 import { OverviewsCommand } from '../overviews'
 import { SearchCommand } from '../search'
 import { SocketIOCommand } from '../socket'
-import { AccountsCommand, BlocklistCommand, LoginCommand, NotificationsCommand, SubscriptionsCommand, UsersCommand } from '../users'
+import {
+  AccountsCommand,
+  BlocklistCommand,
+  LoginCommand,
+  NotificationsCommand,
+  SubscriptionsCommand,
+  TwoFactorCommand,
+  UsersCommand
+} from '../users'
 import {
   BlacklistCommand,
   CaptionsCommand,
   ChangeOwnershipCommand,
   ChannelsCommand,
+  ChannelSyncsCommand,
   HistoryCommand,
   ImportsCommand,
   LiveCommand,
@@ -27,6 +36,7 @@ import {
   StreamingPlaylistsCommand,
   VideosCommand,
   VideoStudioCommand,
+  VideoTokenCommand,
   ViewsCommand
 } from '../videos'
 import { CommentsCommand } from '../videos/comments-command'
@@ -36,6 +46,7 @@ import { ContactFormCommand } from './contact-form-command'
 import { DebugCommand } from './debug-command'
 import { FollowsCommand } from './follows-command'
 import { JobsCommand } from './jobs-command'
+import { MetricsCommand } from './metrics-command'
 import { ObjectStorageCommand } from './object-storage-command'
 import { PluginsCommand } from './plugins-command'
 import { RedundancyCommand } from './redundancy-command'
@@ -79,6 +90,7 @@ export class PeerTubeServer {
     }
 
     channel?: VideoChannel
+    videoChannelSync?: Partial<VideoChannelSync>
 
     video?: Video
     videoCreated?: VideoCreateResult
@@ -102,6 +114,7 @@ export class PeerTubeServer {
   debug?: DebugCommand
   follows?: FollowsCommand
   jobs?: JobsCommand
+  metrics?: MetricsCommand
   plugins?: PluginsCommand
   redundancy?: RedundancyCommand
   stats?: StatsCommand
@@ -118,6 +131,7 @@ export class PeerTubeServer {
   playlists?: PlaylistsCommand
   history?: HistoryCommand
   imports?: ImportsCommand
+  channelSyncs?: ChannelSyncsCommand
   streamingPlaylists?: StreamingPlaylistsCommand
   channels?: ChannelsCommand
   comments?: CommentsCommand
@@ -131,6 +145,8 @@ export class PeerTubeServer {
   videos?: VideosCommand
   videoStats?: VideoStatsCommand
   views?: ViewsCommand
+  twoFactor?: TwoFactorCommand
+  videoToken?: VideoTokenCommand
 
   constructor (options: { serverNumber: number } | { url: string }) {
     if ((options as any).url) {
@@ -175,6 +191,12 @@ export class PeerTubeServer {
     this.host = parsed.host
     this.hostname = parsed.hostname
     this.port = parseInt(parsed.port)
+  }
+
+  getDirectoryPath (directoryName: string) {
+    const testDirectory = 'test' + this.internalServerNumber
+
+    return join(root(), testDirectory, directoryName)
   }
 
   async flushAndRun (configOverride?: Object, options: RunServerOptions = {}) {
@@ -237,7 +259,7 @@ export class PeerTubeServer {
 
       const onPeerTubeExit = () => rej(new Error('Process exited:\n' + aggregatedLogs))
       const onParentExit = () => {
-        if (!this.app || !this.app.pid) return
+        if (!this.app?.pid) return
 
         try {
           process.kill(self.app.pid)
@@ -336,19 +358,20 @@ export class PeerTubeServer {
         suffix: '_test' + this.internalServerNumber
       },
       storage: {
-        tmp: `test${this.internalServerNumber}/tmp/`,
-        bin: `test${this.internalServerNumber}/bin/`,
-        avatars: `test${this.internalServerNumber}/avatars/`,
-        videos: `test${this.internalServerNumber}/videos/`,
-        streaming_playlists: `test${this.internalServerNumber}/streaming-playlists/`,
-        redundancy: `test${this.internalServerNumber}/redundancy/`,
-        logs: `test${this.internalServerNumber}/logs/`,
-        previews: `test${this.internalServerNumber}/previews/`,
-        thumbnails: `test${this.internalServerNumber}/thumbnails/`,
-        torrents: `test${this.internalServerNumber}/torrents/`,
-        captions: `test${this.internalServerNumber}/captions/`,
-        cache: `test${this.internalServerNumber}/cache/`,
-        plugins: `test${this.internalServerNumber}/plugins/`
+        tmp: this.getDirectoryPath('tmp') + '/',
+        bin: this.getDirectoryPath('bin') + '/',
+        avatars: this.getDirectoryPath('avatars') + '/',
+        videos: this.getDirectoryPath('videos') + '/',
+        streaming_playlists: this.getDirectoryPath('streaming-playlists') + '/',
+        redundancy: this.getDirectoryPath('redundancy') + '/',
+        logs: this.getDirectoryPath('logs') + '/',
+        previews: this.getDirectoryPath('previews') + '/',
+        thumbnails: this.getDirectoryPath('thumbnails') + '/',
+        torrents: this.getDirectoryPath('torrents') + '/',
+        captions: this.getDirectoryPath('captions') + '/',
+        cache: this.getDirectoryPath('cache') + '/',
+        plugins: this.getDirectoryPath('plugins') + '/',
+        well_known: this.getDirectoryPath('well-known') + '/'
       },
       admin: {
         email: `admin${this.internalServerNumber}@example.com`
@@ -374,6 +397,7 @@ export class PeerTubeServer {
     this.debug = new DebugCommand(this)
     this.follows = new FollowsCommand(this)
     this.jobs = new JobsCommand(this)
+    this.metrics = new MetricsCommand(this)
     this.plugins = new PluginsCommand(this)
     this.redundancy = new RedundancyCommand(this)
     this.stats = new StatsCommand(this)
@@ -390,6 +414,7 @@ export class PeerTubeServer {
     this.playlists = new PlaylistsCommand(this)
     this.history = new HistoryCommand(this)
     this.imports = new ImportsCommand(this)
+    this.channelSyncs = new ChannelSyncsCommand(this)
     this.streamingPlaylists = new StreamingPlaylistsCommand(this)
     this.channels = new ChannelsCommand(this)
     this.comments = new CommentsCommand(this)
@@ -403,5 +428,7 @@ export class PeerTubeServer {
     this.videoStudio = new VideoStudioCommand(this)
     this.videoStats = new VideoStatsCommand(this)
     this.views = new ViewsCommand(this)
+    this.twoFactor = new TwoFactorCommand(this)
+    this.videoToken = new VideoTokenCommand(this)
   }
 }

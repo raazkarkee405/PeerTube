@@ -175,7 +175,7 @@ export class VideoStatsComponent implements OnInit {
     this.statsService.getOverallStats({ videoId: this.video.uuid, startDate: this.statsStartDate, endDate: this.statsEndDate })
       .subscribe({
         next: res => {
-          this.countries = res.countries.slice(0, 10).map(c => ({
+          this.countries = res.countries.map(c => ({
             name: this.countryCodeToName(c.isoCode),
             viewers: c.viewers
           }))
@@ -528,7 +528,7 @@ export class VideoStatsComponent implements OnInit {
     const date = new Date(label)
 
     if (data.groupInterval.match(/ month?$/)) {
-      return date.toLocaleDateString([], { month: 'numeric' })
+      return date.toLocaleDateString([], { year: '2-digit', month: 'numeric' })
     }
 
     if (data.groupInterval.match(/ days?$/)) {

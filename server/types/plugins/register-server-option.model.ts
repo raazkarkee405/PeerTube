@@ -1,4 +1,5 @@
 import { Response, Router } from 'express'
+import { Server } from 'http'
 import { Logger } from 'winston'
 import { ActorModel } from '@server/models/actor/actor'
 import {
@@ -14,15 +15,15 @@ import {
   RegisterServerSettingOptions,
   ServerConfig,
   ThumbnailType,
-  UserRole,
   VideoBlacklistCreate
 } from '@shared/models'
-import { MVideoThumbnail } from '../models'
+import { MUserDefault, MVideo, MVideoThumbnail, UserNotificationModelForApi } from '../models'
 import {
   RegisterServerAuthExternalOptions,
   RegisterServerAuthExternalResult,
   RegisterServerAuthPassOptions
 } from './register-server-auth.model'
+import { RegisterServerWebSocketRouteOptions } from './register-server-websocket-route.model'
 
 export type PeerTubeHelpers = {
   logger: Logger
@@ -84,7 +85,15 @@ export type PeerTubeHelpers = {
   }
 
   server: {
+    // PeerTube >= 5.0
+    getHTTPServer: () => Server
+
     getServerActor: () => Promise<ActorModel>
+  }
+
+  socket: {
+    sendNotification: (userId: number, notification: UserNotificationModelForApi) => void
+    sendVideoLiveNewState: (video: MVideo) => void
   }
 
   plugin: {
@@ -93,6 +102,8 @@ export type PeerTubeHelpers = {
 
     // PeerTube >= 3.2
     getBaseRouterRoute: () => string
+    // PeerTube >= 5.0
+    getBaseWebSocketRoute: () => string
 
     // PeerTube >= 3.2
     getDataDirectoryPath: () => string
@@ -100,16 +111,10 @@ export type PeerTubeHelpers = {
 
   user: {
     // PeerTube >= 3.2
-    getAuthUser: (response: Response) => Promise<{
-      id?: string
-      username: string
-      email: string
-      blocked: boolean
-      role: UserRole
-      Account: {
-        name: string
-      }
-    } | undefined>
+    getAuthUser: (response: Response) => Promise<MUserDefault>
+
+    // PeerTube >= 4.3
+    loadById: (id: number) => Promise<MUserDefault>
   }
 }
 
@@ -141,6 +146,13 @@ export type RegisterServerOptions = {
   //  * /plugins/:pluginName/:pluginVersion/router/...
   //  * /plugins/:pluginName/router/...
   getRouter(): Router
+
+  // PeerTube >= 5.0
+  // Register WebSocket route
+  // Base routes of the WebSocket router are
+  //  * /plugins/:pluginName/:pluginVersion/ws/...
+  //  * /plugins/:pluginName/ws/...
+  registerWebSocketRoute: (options: RegisterServerWebSocketRouteOptions) => void
 
   peertubeHelpers: PeerTubeHelpers
 }

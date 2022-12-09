@@ -15,9 +15,12 @@ import {
   Table,
   UpdatedAt
 } from 'sequelize-typescript'
-import { getHLSPublicFileUrl } from '@server/lib/object-storage'
+import { CONFIG } from '@server/initializers/config'
+import { getHLSPrivateFileUrl, getHLSPublicFileUrl } from '@server/lib/object-storage'
+import { generateHLSMasterPlaylistFilename, generateHlsSha256SegmentsFilename } from '@server/lib/paths'
+import { isVideoInPrivateDirectory } from '@server/lib/video-privacy'
 import { VideoFileModel } from '@server/models/video/video-file'
-import { MStreamingPlaylist, MVideo } from '@server/types/models'
+import { MStreamingPlaylist, MStreamingPlaylistFilesVideo, MVideo } from '@server/types/models'
 import { sha1 } from '@shared/extra-utils'
 import { VideoStorage } from '@shared/models'
 import { AttributesOnly } from '@shared/typescript-utils'
@@ -167,6 +170,22 @@ export class VideoStreamingPlaylistModel extends Model<Partial<AttributesOnly<Vi
     return VideoStreamingPlaylistModel.findAll(query)
   }
 
+  static loadWithVideoAndFiles (id: number) {
+    const options = {
+      include: [
+        {
+          model: VideoModel.unscoped(),
+          required: true
+        },
+        {
+          model: VideoFileModel.unscoped()
+        }
+      ]
+    }
+
+    return VideoStreamingPlaylistModel.findByPk<MStreamingPlaylistFilesVideo>(id, options)
+  }
+
   static loadWithVideo (id: number) {
     const options = {
       include: [
@@ -194,9 +213,22 @@ export class VideoStreamingPlaylistModel extends Model<Partial<AttributesOnly<Vi
 
   static async loadOrGenerate (video: MVideo, transaction?: Transaction) {
     let playlist = await VideoStreamingPlaylistModel.loadHLSPlaylistByVideo(video.id, transaction)
-    if (!playlist) playlist = new VideoStreamingPlaylistModel()
 
-    return Object.assign(playlist, { videoId: video.id, Video: video })
+    if (!playlist) {
+      playlist = new VideoStreamingPlaylistModel({
+        p2pMediaLoaderPeerVersion: P2P_MEDIA_LOADER_PEER_VERSION,
+        type: VideoStreamingPlaylistType.HLS,
+        storage: VideoStorage.FILE_SYSTEM,
+        p2pMediaLoaderInfohashes: [],
+        playlistFilename: generateHLSMasterPlaylistFilename(video.isLive),
+        segmentsSha256Filename: generateHlsSha256SegmentsFilename(video.isLive),
+        videoId: video.id
+      })
+
+      await playlist.save({ transaction })
+    }
+
+    return Object.assign(playlist, { Video: video })
   }
 
   static doesOwnedHLSPlaylistExist (videoUUID: string) {
@@ -214,25 +246,51 @@ export class VideoStreamingPlaylistModel extends Model<Partial<AttributesOnly<Vi
     this.p2pMediaLoaderInfohashes = VideoStreamingPlaylistModel.buildP2PMediaLoaderInfoHashes(masterPlaylistUrl, files)
   }
 
-  getMasterPlaylistUrl (video: MVideo) {
-    if (this.storage === VideoStorage.OBJECT_STORAGE) {
-      return getHLSPublicFileUrl(this.playlistUrl)
-    }
+  // ---------------------------------------------------------------------------
 
-    if (video.isOwned()) return WEBSERVER.URL + this.getMasterPlaylistStaticPath(video.uuid)
+  getMasterPlaylistUrl (video: MVideo) {
+    if (video.isOwned()) {
+      if (this.storage === VideoStorage.OBJECT_STORAGE) {
+        return this.getMasterPlaylistObjectStorageUrl(video)
+      }
+
+      return WEBSERVER.URL + this.getMasterPlaylistStaticPath(video)
+    }
 
     return this.playlistUrl
   }
 
-  getSha256SegmentsUrl (video: MVideo) {
-    if (this.storage === VideoStorage.OBJECT_STORAGE) {
-      return getHLSPublicFileUrl(this.segmentsSha256Url)
+  private getMasterPlaylistObjectStorageUrl (video: MVideo) {
+    if (video.hasPrivateStaticPath() && CONFIG.OBJECT_STORAGE.PROXY.PROXIFY_PRIVATE_FILES === true) {
+      return getHLSPrivateFileUrl(video, this.playlistFilename)
     }
 
-    if (video.isOwned()) return WEBSERVER.URL + this.getSha256SegmentsStaticPath(video.uuid, video.isLive)
+    return getHLSPublicFileUrl(this.playlistUrl)
+  }
+
+  // ---------------------------------------------------------------------------
+
+  getSha256SegmentsUrl (video: MVideo) {
+    if (video.isOwned()) {
+      if (this.storage === VideoStorage.OBJECT_STORAGE) {
+        return this.getSha256SegmentsObjectStorageUrl(video)
+      }
+
+      return WEBSERVER.URL + this.getSha256SegmentsStaticPath(video)
+    }
 
     return this.segmentsSha256Url
   }
+
+  private getSha256SegmentsObjectStorageUrl (video: MVideo) {
+    if (video.hasPrivateStaticPath() && CONFIG.OBJECT_STORAGE.PROXY.PROXIFY_PRIVATE_FILES === true) {
+      return getHLSPrivateFileUrl(video, this.segmentsSha256Filename)
+    }
+
+    return getHLSPublicFileUrl(this.segmentsSha256Url)
+  }
+
+  // ---------------------------------------------------------------------------
 
   getStringType () {
     if (this.type === VideoStreamingPlaylistType.HLS) return 'hls'
@@ -253,13 +311,19 @@ export class VideoStreamingPlaylistModel extends Model<Partial<AttributesOnly<Vi
     return Object.assign(this, { Video: video })
   }
 
-  private getMasterPlaylistStaticPath (videoUUID: string) {
-    return join(STATIC_PATHS.STREAMING_PLAYLISTS.HLS, videoUUID, this.playlistFilename)
+  private getMasterPlaylistStaticPath (video: MVideo) {
+    if (isVideoInPrivateDirectory(video.privacy)) {
+      return join(STATIC_PATHS.STREAMING_PLAYLISTS.PRIVATE_HLS, video.uuid, this.playlistFilename)
+    }
+
+    return join(STATIC_PATHS.STREAMING_PLAYLISTS.HLS, video.uuid, this.playlistFilename)
   }
 
-  private getSha256SegmentsStaticPath (videoUUID: string, isLive: boolean) {
-    if (isLive) return join('/live', 'segments-sha256', videoUUID)
+  private getSha256SegmentsStaticPath (video: MVideo) {
+    if (isVideoInPrivateDirectory(video.privacy)) {
+      return join(STATIC_PATHS.STREAMING_PLAYLISTS.PRIVATE_HLS, video.uuid, this.segmentsSha256Filename)
+    }
 
-    return join(STATIC_PATHS.STREAMING_PLAYLISTS.HLS, videoUUID, this.segmentsSha256Filename)
+    return join(STATIC_PATHS.STREAMING_PLAYLISTS.HLS, video.uuid, this.segmentsSha256Filename)
   }
 }

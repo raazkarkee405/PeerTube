@@ -1,7 +1,8 @@
 import videojs from 'video.js'
 import * as WebTorrent from 'webtorrent'
+import { logger } from '@root-helpers/logger'
 import { isIOS } from '@root-helpers/web-browser'
-import { timeToInt } from '@shared/core-utils'
+import { addQueryParams, timeToInt } from '@shared/core-utils'
 import { VideoFile } from '@shared/models'
 import { getAverageBandwidthInStore, getStoredMute, getStoredVolume, saveAverageBandwidth } from '../../peertube-player-local-storage'
 import { PeerTubeResolution, PlayerNetworkInfo, WebtorrentPluginOptions } from '../../types'
@@ -24,7 +25,7 @@ class WebTorrentPlugin extends Plugin {
 
   private readonly playerElement: HTMLVideoElement
 
-  private readonly autoplay: boolean = false
+  private readonly autoplay: boolean | string = false
   private readonly startTime: number = 0
   private readonly savePlayerSrcFunction: videojs.Player['src']
   private readonly videoDuration: number
@@ -36,6 +37,8 @@ class WebTorrentPlugin extends Plugin {
     AUTO_QUALITY_HIGHER_RESOLUTION_DELAY: 5000, // Buffering higher resolution during 5 seconds
     BANDWIDTH_AVERAGE_NUMBER_OF_VALUES: 5 // Last 5 seconds to build average bandwidth
   }
+
+  private readonly buildWebSeedUrls: (file: VideoFile) => string[]
 
   private readonly webtorrent = new WebTorrent({
     tracker: {
@@ -55,6 +58,9 @@ class WebTorrentPlugin extends Plugin {
   private autoResolutionPossible = true
   private isAutoResolutionObservation = false
   private playerRefusedP2P = false
+
+  private requiresAuth: boolean
+  private videoFileToken: () => string
 
   private torrentInfoInterval: any
   private autoQualityInterval: any
@@ -79,6 +85,11 @@ class WebTorrentPlugin extends Plugin {
 
     this.savePlayerSrcFunction = this.player.src
     this.playerElement = options.playerElement
+
+    this.requiresAuth = options.requiresAuth
+    this.videoFileToken = options.videoFileToken
+
+    this.buildWebSeedUrls = options.buildWebSeedUrls
 
     this.player.ready(() => {
       const playerOptions = this.player.options_
@@ -203,6 +214,8 @@ class WebTorrentPlugin extends Plugin {
     }
 
     this.updateVideoFile(newVideoFile, options)
+
+    this.player.trigger('engineResolutionChange')
   }
 
   flushVideoFile (videoFile: VideoFile, destroyRenderer = true) {
@@ -210,7 +223,7 @@ class WebTorrentPlugin extends Plugin {
       if (destroyRenderer === true && this.renderer && this.renderer.destroy) this.renderer.destroy()
 
       this.webtorrent.remove(videoFile.magnetUri)
-      console.log('Removed ' + videoFile.magnetUri)
+      logger.info(`Removed ${videoFile.magnetUri}`)
     }
   }
 
@@ -256,7 +269,7 @@ class WebTorrentPlugin extends Plugin {
   ) {
     if (!magnetOrTorrentUrl) return this.fallbackToHttp(options, done)
 
-    console.log('Adding ' + magnetOrTorrentUrl + '.')
+    logger.info(`Adding ${magnetOrTorrentUrl}.`)
 
     const oldTorrent = this.torrent
     const torrentOptions = {
@@ -265,11 +278,12 @@ class WebTorrentPlugin extends Plugin {
         return new CacheChunkStore(new PeertubeChunkStore(chunkLength, storeOpts), {
           max: 100
         })
-      }
+      },
+      urlList: this.buildWebSeedUrls(this.currentVideoFile)
     }
 
     this.torrent = this.webtorrent.add(magnetOrTorrentUrl, torrentOptions, torrent => {
-      console.log('Added ' + magnetOrTorrentUrl + '.')
+      logger.info(`Added ${magnetOrTorrentUrl}.`)
 
       if (oldTorrent) {
         // Pause the old torrent
@@ -309,7 +323,7 @@ class WebTorrentPlugin extends Plugin {
       }, options.delay || 0)
     })
 
-    this.torrent.on('error', (err: any) => console.error(err))
+    this.torrent.on('error', (err: any) => logger.error(err))
 
     this.torrent.on('warning', (err: any) => {
       // We don't support HTTP tracker but we don't care -> we use the web socket tracker
@@ -317,13 +331,13 @@ class WebTorrentPlugin extends Plugin {
 
       // Users don't care about issues with WebRTC, but developers do so log it in the console
       if (err.message.indexOf('Ice connection failed') !== -1) {
-        console.log(err)
+        logger.info(err)
         return
       }
 
       // Magnet hash is not up to date with the torrent file, add directly the torrent file
       if (err.message.indexOf('incorrect info hash') !== -1) {
-        console.error('Incorrect info hash detected, falling back to torrent file.')
+        logger.error('Incorrect info hash detected, falling back to torrent file.')
         const newOptions = { forcePlay: true, seek: options.seek }
         return this.addTorrent(this.torrent['xs'], previousVideoFile, newOptions, done)
       }
@@ -333,7 +347,7 @@ class WebTorrentPlugin extends Plugin {
         this.handleError(err)
       }
 
-      console.warn(err)
+      logger.warn(err)
     })
   }
 
@@ -348,7 +362,7 @@ class WebTorrentPlugin extends Plugin {
                             return
                           }
 
-                          console.error(err)
+                          logger.warn(err)
                           this.player.pause()
                           this.player.posterImage.show()
                           this.player.removeClass('vjs-has-autoplay')
@@ -435,7 +449,7 @@ class WebTorrentPlugin extends Plugin {
       return
     }
 
-    if (this.autoplay) {
+    if (this.autoplay !== false) {
       this.player.posterImage.hide()
 
       return this.updateVideoFile(undefined, { forcePlay: true, seek: this.startTime })
@@ -465,10 +479,10 @@ class WebTorrentPlugin extends Plugin {
 
       // Lower resolution
       if (this.isPlayerWaiting() && file.resolution.id < this.currentVideoFile.resolution.id) {
-        console.log('Downgrading automatically the resolution to: %s', file.resolution.label)
+        logger.info(`Downgrading automatically the resolution to: ${file.resolution.label}`)
         changeResolution = true
       } else if (file.resolution.id > this.currentVideoFile.resolution.id) { // Higher resolution
-        console.log('Upgrading automatically the resolution to: %s', file.resolution.label)
+        logger.info(`Upgrading automatically the resolution to: ${file.resolution.label}`)
         changeResolution = true
         changeResolutionDelay = this.CONSTANTS.AUTO_QUALITY_HIGHER_RESOLUTION_DELAY
       }
@@ -505,9 +519,7 @@ class WebTorrentPlugin extends Plugin {
         source: 'webtorrent',
         http: {
           downloadSpeed: 0,
-          uploadSpeed: 0,
-          downloaded: 0,
-          uploaded: 0
+          downloaded: 0
         },
         p2p: {
           downloadSpeed: this.torrent.downloadSpeed,
@@ -532,7 +544,12 @@ class WebTorrentPlugin extends Plugin {
     // Enable error display now this is our last fallback
     this.player.one('error', () => this.player.peertube().displayFatalError())
 
-    const httpUrl = this.currentVideoFile.fileUrl
+    let httpUrl = this.currentVideoFile.fileUrl
+
+    if (this.requiresAuth && this.videoFileToken) {
+      httpUrl = addQueryParams(httpUrl, { videoFileToken: this.videoFileToken() })
+    }
+
     this.player.src = this.savePlayerSrcFunction
     this.player.src(httpUrl)
 
@@ -577,7 +594,7 @@ class WebTorrentPlugin extends Plugin {
 
       // The renderer returns an error when we destroy it, so skip them
       if (this.destroyingFakeRenderer === false && err) {
-        console.error('Cannot render new torrent in fake video element.', err)
+        logger.error('Cannot render new torrent in fake video element.', err)
       }
 
       // Load the future file at the correct time (in delay MS - 2 seconds)
@@ -593,7 +610,7 @@ class WebTorrentPlugin extends Plugin {
         try {
           this.fakeRenderer.destroy()
         } catch (err) {
-          console.log('Cannot destroy correctly fake renderer.', err)
+          logger.info('Cannot destroy correctly fake renderer.', err)
         }
       }
       this.fakeRenderer = undefined

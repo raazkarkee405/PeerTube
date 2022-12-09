@@ -22,6 +22,8 @@ import {
 import { FormReactiveValidationMessages, FormValidatorService } from '@app/shared/shared-forms'
 import { InstanceService } from '@app/shared/shared-instance'
 import { VideoCaptionEdit, VideoCaptionWithPathEdit, VideoEdit, VideoService } from '@app/shared/shared-main'
+import { NgbModal } from '@ng-bootstrap/ng-bootstrap'
+import { logger } from '@root-helpers/logger'
 import { PluginInfo } from '@root-helpers/plugins-manager'
 import {
   HTMLServerConfig,
@@ -33,11 +35,11 @@ import {
   VideoDetails,
   VideoPrivacy
 } from '@shared/models'
+import { VideoSource } from '@shared/models/videos/video-source'
 import { I18nPrimengCalendarService } from './i18n-primeng-calendar.service'
 import { VideoCaptionAddModalComponent } from './video-caption-add-modal.component'
-import { VideoCaptionEditModalComponent } from './video-caption-edit-modal/video-caption-edit-modal.component'
+import { VideoCaptionEditModalContentComponent } from './video-caption-edit-modal-content/video-caption-edit-modal-content.component'
 import { VideoEditType } from './video-edit.type'
-import { VideoSource } from '@shared/models/videos/video-source'
 
 type VideoLanguages = VideoConstant<string> & { group?: string }
 type PluginField = {
@@ -64,12 +66,12 @@ export class VideoEditComponent implements OnInit, OnDestroy {
   @Input() videoCaptions: VideoCaptionWithPathEdit[] = []
   @Input() videoSource: VideoSource
 
-  @Input() waitTranscodingEnabled = true
+  @Input() hideWaitTranscoding = false
+
   @Input() type: VideoEditType
   @Input() liveVideo: LiveVideo
 
   @ViewChild('videoCaptionAddModal', { static: true }) videoCaptionAddModal: VideoCaptionAddModalComponent
-  @ViewChild('videoCaptionEditModal', { static: true }) editCaptionModal: VideoCaptionEditModalComponent
 
   @Output() formBuilt = new EventEmitter<void>()
   @Output() pluginFieldsAdded = new EventEmitter<void>()
@@ -127,7 +129,8 @@ export class VideoEditComponent implements OnInit, OnDestroy {
     private i18nPrimengCalendarService: I18nPrimengCalendarService,
     private ngZone: NgZone,
     private hooks: HooksService,
-    private cd: ChangeDetectorRef
+    private cd: ChangeDetectorRef,
+    private modalService: NgbModal
   ) {
     this.calendarTimezone = this.i18nPrimengCalendarService.getTimezone()
     this.calendarDateFormat = this.i18nPrimengCalendarService.getDateFormat()
@@ -138,7 +141,7 @@ export class VideoEditComponent implements OnInit, OnDestroy {
       nsfw: 'false',
       commentsEnabled: this.serverConfig.defaults.publish.commentsEnabled,
       downloadEnabled: this.serverConfig.defaults.publish.downloadEnabled,
-      waitTranscoding: 'true',
+      waitTranscoding: true,
       licence: this.serverConfig.defaults.publish.licence,
       tags: []
     }
@@ -283,6 +286,13 @@ export class VideoEditComponent implements OnInit, OnDestroy {
 
   openAddCaptionModal () {
     this.videoCaptionAddModal.show()
+  }
+
+  openEditCaptionModal (videoCaption: VideoCaptionWithPathEdit) {
+    const modalRef = this.modalService.open(VideoCaptionEditModalContentComponent, { centered: true, keyboard: false })
+    modalRef.componentInstance.videoCaption = videoCaption
+    modalRef.componentInstance.serverConfig = this.serverConfig
+    modalRef.componentInstance.captionEdited.subscribe(this.onCaptionEdited.bind(this))
   }
 
   isSaveReplayEnabled () {
@@ -443,7 +453,7 @@ export class VideoEditComponent implements OnInit, OnDestroy {
 
             const oldChannel = this.userVideoChannels.find(c => c.id === oldChannelId)
             if (!newChannel || !oldChannel) {
-              console.error('Cannot find new or old channel.')
+              logger.error('Cannot find new or old channel.')
               return
             }
 

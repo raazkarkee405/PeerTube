@@ -1,4 +1,4 @@
-import { Job } from 'bull'
+import { Job } from 'bullmq'
 import ffmpeg, { FfmpegCommand } from 'fluent-ffmpeg'
 import { execPromise } from '@server/helpers/core-utils'
 import { logger, loggerTagsFactory } from '@server/helpers/logger'
@@ -38,7 +38,7 @@ function getFFmpegVersion () {
       return execPromise(`${ffmpegPath} -version`)
         .then(stdout => {
           const parsed = stdout.match(/ffmpeg version .?(\d+\.\d+(\.\d+)?)/)
-          if (!parsed || !parsed[1]) return rej(new Error(`Could not find ffmpeg version in ${stdout}`))
+          if (!parsed?.[1]) return rej(new Error(`Could not find ffmpeg version in ${stdout}`))
 
           // Fix ffmpeg version that does not include patch version (4.4 for example)
           let version = parsed[1]
@@ -81,7 +81,7 @@ async function runCommand (options: {
       command.on('progress', progress => {
         if (!progress.percent) return
 
-        job.progress(Math.round(progress.percent))
+        job.updateProgress(Math.round(progress.percent))
           .catch(err => logger.warn('Cannot set ffmpeg job progress.', { err, ...lTags() }))
       })
     }

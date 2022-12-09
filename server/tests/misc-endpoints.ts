@@ -1,20 +1,24 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
 
-import 'mocha'
-import * as chai from 'chai'
-import { cleanupTests, createSingleServer, makeGetRequest, PeerTubeServer, setAccessTokensToServers } from '@shared/server-commands'
+import { expect } from 'chai'
+import { writeJson } from 'fs-extra'
+import { join } from 'path'
 import { HttpStatusCode, VideoPrivacy } from '@shared/models'
-
-const expect = chai.expect
+import { cleanupTests, createSingleServer, makeGetRequest, PeerTubeServer, setAccessTokensToServers } from '@shared/server-commands'
+import { expectLogDoesNotContain } from './shared'
 
 describe('Test misc endpoints', function () {
   let server: PeerTubeServer
+  let wellKnownPath: string
 
   before(async function () {
     this.timeout(120000)
 
     server = await createSingleServer(1)
+
     await setAccessTokensToServers([ server ])
+
+    wellKnownPath = server.getDirectoryPath('well-known')
   })
 
   describe('Test a well known endpoints', function () {
@@ -94,6 +98,28 @@ describe('Test misc endpoints', function () {
       const remoteInteract = data.links.find(l => l.rel === 'http://ostatus.org/schema/1.0/subscribe')
       expect(remoteInteract).to.exist
       expect(remoteInteract.template).to.equal(server.url + '/remote-interaction?uri={uri}')
+    })
+
+    it('Should return 404 for non-existing files in /.well-known', async function () {
+      await makeGetRequest({
+        url: server.url,
+        path: '/.well-known/non-existing-file',
+        expectedStatus: HttpStatusCode.NOT_FOUND_404
+      })
+    })
+
+    it('Should return custom file from /.well-known', async function () {
+      const filename = 'existing-file.json'
+
+      await writeJson(join(wellKnownPath, filename), { iThink: 'therefore I am' })
+
+      const { body } = await makeGetRequest({
+        url: server.url,
+        path: '/.well-known/' + filename,
+        expectedStatus: HttpStatusCode.OK_200
+      })
+
+      expect(body.iThink).to.equal('therefore I am')
     })
   })
 
@@ -185,6 +211,23 @@ describe('Test misc endpoints', function () {
 
       expect(res.text).to.contain('<url><loc>http://localhost:' + server.port + '/accounts/user1</loc></url>')
       expect(res.text).to.contain('<url><loc>http://localhost:' + server.port + '/accounts/user2</loc></url>')
+    })
+
+    it('Should not fail with big title/description videos', async function () {
+      const name = 'v'.repeat(115)
+
+      await server.videos.upload({ attributes: { name, description: 'd'.repeat(2500), nsfw: false } })
+
+      const res = await makeGetRequest({
+        url: server.url,
+        path: '/sitemap.xml?t=2', // avoid using cache
+        expectedStatus: HttpStatusCode.OK_200
+      })
+
+      await expectLogDoesNotContain(server, 'Warning in sitemap generation')
+      await expectLogDoesNotContain(server, 'Error in sitemap generation')
+
+      expect(res.text).to.contain(`<video:title>${'v'.repeat(97)}...</video:title>`)
     })
   })
 

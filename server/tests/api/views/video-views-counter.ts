@@ -1,13 +1,10 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
 
-import 'mocha'
-import * as chai from 'chai'
+import { expect } from 'chai'
 import { FfmpegCommand } from 'fluent-ffmpeg'
 import { prepareViewsServers, prepareViewsVideos, processViewsBuffer } from '@server/tests/shared'
 import { wait } from '@shared/core-utils'
 import { cleanupTests, PeerTubeServer, stopFfmpeg, waitJobs } from '@shared/server-commands'
-
-const expect = chai.expect
 
 describe('Test video views/viewers counters', function () {
   let servers: PeerTubeServer[]
@@ -79,7 +76,7 @@ describe('Test video views/viewers counters', function () {
     let command: FfmpegCommand
 
     before(async function () {
-      this.timeout(120000);
+      this.timeout(240000);
 
       ({ vodVideoId, liveVideoId, ffmpegCommand: command } = await prepareViewsVideos({ servers, live: true, vod: true }))
     })

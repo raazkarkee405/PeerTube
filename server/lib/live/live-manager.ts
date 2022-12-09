@@ -1,15 +1,15 @@
-
 import { readdir, readFile } from 'fs-extra'
 import { createServer, Server } from 'net'
 import { join } from 'path'
 import { createServer as createServerTLS, Server as ServerTLS } from 'tls'
 import {
-  computeLowerResolutionsToTranscode,
+  computeResolutionsToTranscode,
   ffprobePromise,
   getLiveSegmentTime,
   getVideoStreamBitrate,
   getVideoStreamDimensionsInfo,
-  getVideoStreamFPS
+  getVideoStreamFPS,
+  hasAudioStream
 } from '@server/helpers/ffmpeg'
 import { logger, loggerTagsFactory } from '@server/helpers/logger'
 import { CONFIG, registerConfigChangedHandler } from '@server/initializers/config'
@@ -20,14 +20,15 @@ import { VideoLiveModel } from '@server/models/video/video-live'
 import { VideoLiveSessionModel } from '@server/models/video/video-live-session'
 import { VideoStreamingPlaylistModel } from '@server/models/video/video-streaming-playlist'
 import { MStreamingPlaylistVideo, MVideo, MVideoLiveSession, MVideoLiveVideo } from '@server/types/models'
-import { wait } from '@shared/core-utils'
-import { LiveVideoError, VideoState, VideoStreamingPlaylistType } from '@shared/models'
+import { pick, wait } from '@shared/core-utils'
+import { LiveVideoError, VideoState, VideoStorage, VideoStreamingPlaylistType } from '@shared/models'
 import { federateVideoIfNeeded } from '../activitypub/videos'
 import { JobQueue } from '../job-queue'
 import { generateHLSMasterPlaylistFilename, generateHlsSha256SegmentsFilename, getLiveReplayBaseDirectory } from '../paths'
 import { PeerTubeSocket } from '../peertube-socket'
+import { Hooks } from '../plugins/hooks'
 import { LiveQuotaStore } from './live-quota-store'
-import { cleanupPermanentLive } from './live-utils'
+import { cleanupAndDestroyPermanentLive } from './live-utils'
 import { MuxingSession } from './shared'
 
 const NodeRtmpSession = require('node-media-server/src/node_rtmp_session')
@@ -223,7 +224,7 @@ class LiveManager {
     if (oldStreamingPlaylist) {
       if (!videoLive.permanentLive) throw new Error('Found previous session in a non permanent live: ' + video.uuid)
 
-      await cleanupPermanentLive(video, oldStreamingPlaylist)
+      await cleanupAndDestroyPermanentLive(video, oldStreamingPlaylist)
     }
 
     this.videoSessions.set(video.id, sessionId)
@@ -231,10 +232,11 @@ class LiveManager {
     const now = Date.now()
     const probe = await ffprobePromise(inputUrl)
 
-    const [ { resolution, ratio }, fps, bitrate ] = await Promise.all([
+    const [ { resolution, ratio }, fps, bitrate, hasAudio ] = await Promise.all([
       getVideoStreamDimensionsInfo(inputUrl, probe),
       getVideoStreamFPS(inputUrl, probe),
-      getVideoStreamBitrate(inputUrl, probe)
+      getVideoStreamBitrate(inputUrl, probe),
+      hasAudioStream(inputUrl, probe)
     ])
 
     logger.info(
@@ -242,7 +244,11 @@ class LiveManager {
       inputUrl, Date.now() - now, bitrate, fps, resolution, lTags(sessionId, video.uuid)
     )
 
-    const allResolutions = this.buildAllResolutionsToTranscode(resolution)
+    const allResolutions = await Hooks.wrapObject(
+      this.buildAllResolutionsToTranscode(resolution, hasAudio),
+      'filter:transcoding.auto.resolutions-to-transcode.result',
+      { video }
+    )
 
     logger.info(
       'Will mux/transcode live video of original resolution %d.', resolution,
@@ -254,26 +260,30 @@ class LiveManager {
     return this.runMuxingSession({
       sessionId,
       videoLive,
+
       streamingPlaylist,
       inputUrl,
       fps,
       bitrate,
       ratio,
-      allResolutions
+      allResolutions,
+      hasAudio
     })
   }
 
   private async runMuxingSession (options: {
     sessionId: string
     videoLive: MVideoLiveVideo
+
     streamingPlaylist: MStreamingPlaylistVideo
     inputUrl: string
     fps: number
     bitrate: number
     ratio: number
     allResolutions: number[]
+    hasAudio: boolean
   }) {
-    const { sessionId, videoLive, streamingPlaylist, allResolutions, fps, bitrate, ratio, inputUrl } = options
+    const { sessionId, videoLive } = options
     const videoUUID = videoLive.Video.uuid
     const localLTags = lTags(sessionId, videoUUID)
 
@@ -284,18 +294,14 @@ class LiveManager {
 
     const muxingSession = new MuxingSession({
       context: this.getContext(),
-      user,
       sessionId,
       videoLive,
-      streamingPlaylist,
-      inputUrl,
-      bitrate,
-      ratio,
-      fps,
-      allResolutions
+      user,
+
+      ...pick(options, [ 'streamingPlaylist', 'inputUrl', 'bitrate', 'ratio', 'fps', 'allResolutions', 'hasAudio' ])
     })
 
-    muxingSession.on('master-playlist-created', () => this.publishAndFederateLive(videoLive, localLTags))
+    muxingSession.on('live-ready', () => this.publishAndFederateLive(videoLive, localLTags))
 
     muxingSession.on('bad-socket-health', ({ videoId }) => {
       logger.error(
@@ -403,7 +409,7 @@ class LiveManager {
         await liveSession.save()
       }
 
-      JobQueue.Instance.createJob({
+      JobQueue.Instance.createJobAsync({
         type: 'video-live-ending',
         payload: {
           videoId: fullVideo.id,
@@ -416,8 +422,12 @@ class LiveManager {
           streamingPlaylistId: fullVideo.getHLSPlaylist()?.id,
 
           publishedAt: fullVideo.publishedAt.toISOString()
-        }
-      }, { delay: cleanupNow ? 0 : VIDEO_LIVE.CLEANUP_DELAY })
+        },
+
+        delay: cleanupNow
+          ? 0
+          : VIDEO_LIVE.CLEANUP_DELAY
+      })
 
       fullVideo.state = live.permanentLive
         ? VideoState.WAITING_FOR_LIVE
@@ -450,12 +460,18 @@ class LiveManager {
     return join(directory, files.sort().reverse()[0])
   }
 
-  private buildAllResolutionsToTranscode (originResolution: number) {
+  private buildAllResolutionsToTranscode (originResolution: number, hasAudio: boolean) {
+    const includeInput = CONFIG.LIVE.TRANSCODING.ALWAYS_TRANSCODE_ORIGINAL_RESOLUTION
+
     const resolutionsEnabled = CONFIG.LIVE.TRANSCODING.ENABLED
-      ? computeLowerResolutionsToTranscode(originResolution, 'live')
+      ? computeResolutionsToTranscode({ input: originResolution, type: 'live', includeInput, strictLower: false, hasAudio })
       : []
 
-    return resolutionsEnabled.concat([ originResolution ])
+    if (resolutionsEnabled.length === 0) {
+      return [ originResolution ]
+    }
+
+    return resolutionsEnabled
   }
 
   private async createLivePlaylist (video: MVideo, allResolutions: number[]): Promise<MStreamingPlaylistVideo> {
@@ -469,13 +485,19 @@ class LiveManager {
 
     playlist.assignP2PMediaLoaderInfoHashes(video, allResolutions)
 
+    playlist.storage = CONFIG.OBJECT_STORAGE.ENABLED
+      ? VideoStorage.OBJECT_STORAGE
+      : VideoStorage.FILE_SYSTEM
+
     return playlist.save()
   }
 
   private saveStartingSession (videoLive: MVideoLiveVideo) {
     const liveSession = new VideoLiveSessionModel({
       startDate: new Date(),
-      liveVideoId: videoLive.videoId
+      liveVideoId: videoLive.videoId,
+      saveReplay: videoLive.saveReplay,
+      endingProcessed: false
     })
 
     return liveSession.save()
@@ -483,6 +505,8 @@ class LiveManager {
 
   private async saveEndingSession (videoId: number, error: LiveVideoError | null) {
     const liveSession = await VideoLiveSessionModel.findCurrentSessionOf(videoId)
+    if (!liveSession) return
+
     liveSession.endDate = new Date()
     liveSession.error = error
 

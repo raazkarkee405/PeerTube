@@ -1,5 +1,6 @@
 import { generateMagnetUri } from '@server/helpers/webtorrent'
 import { getActivityStreamDuration } from '@server/lib/activitypub/activity'
+import { tracer } from '@server/lib/opentelemetry/tracing'
 import { getLocalVideoFileMetadataUrl } from '@server/lib/video-urls'
 import { VideoViewsManager } from '@server/lib/views/video-views-manager'
 import { uuidToShort } from '@shared/extra-utils'
@@ -33,6 +34,7 @@ import {
 import {
   MServer,
   MStreamingPlaylistRedundanciesOpt,
+  MUserId,
   MVideo,
   MVideoAP,
   MVideoFile,
@@ -56,7 +58,7 @@ export type VideoFormattingJSONOptions = {
 }
 
 function guessAdditionalAttributesFromQuery (query: VideosCommonQueryAfterSanitize): VideoFormattingJSONOptions {
-  if (!query || !query.include) return {}
+  if (!query?.include) return {}
 
   return {
     additionalAttributes: {
@@ -71,6 +73,8 @@ function guessAdditionalAttributesFromQuery (query: VideosCommonQueryAfterSaniti
 }
 
 function videoModelToFormattedJSON (video: MVideoFormattable, options: VideoFormattingJSONOptions = {}): Video {
+  const span = tracer.startSpan('peertube.VideoModel.toFormattedJSON')
+
   const userHistory = isArray(video.UserVideoHistories) ? video.UserVideoHistories[0] : undefined
 
   const videoObject: Video = {
@@ -99,6 +103,7 @@ function videoModelToFormattedJSON (video: MVideoFormattable, options: VideoForm
     },
     nsfw: video.nsfw,
 
+    truncatedDescription: video.getTruncatedDescription(),
     description: options && options.completeDescription === true
       ? video.description
       : video.getTruncatedDescription(),
@@ -168,11 +173,16 @@ function videoModelToFormattedJSON (video: MVideoFormattable, options: VideoForm
     videoObject.files = videoFilesModelToFormattedJSON(video, video.VideoFiles)
   }
 
+  span.end()
+
   return videoObject
 }
 
 function videoModelToFormattedDetailsJSON (video: MVideoFormattableDetails): VideoDetails {
+  const span = tracer.startSpan('peertube.VideoModel.toFormattedDetailsJSON')
+
   const videoJSON = video.toFormattedJSON({
+    completeDescription: true,
     additionalAttributes: {
       scheduledUpdate: true,
       blacklistInfo: true,
@@ -198,6 +208,8 @@ function videoModelToFormattedDetailsJSON (video: MVideoFormattableDetails): Vid
 
     trackerUrls: video.getTrackerUrls()
   }
+
+  span.end()
 
   return Object.assign(videoJSON, detailsJSON)
 }
@@ -236,8 +248,12 @@ function sortByResolutionDesc (fileA: MVideoFile, fileB: MVideoFile) {
 function videoFilesModelToFormattedJSON (
   video: MVideoFormattable,
   videoFiles: MVideoFileRedundanciesOpt[],
-  includeMagnet = true
+  options: {
+    includeMagnet?: boolean // default true
+  } = {}
 ): VideoFile[] {
+  const { includeMagnet = true } = options
+
   const trackerUrls = includeMagnet
     ? video.getTrackerUrls()
     : []
@@ -247,6 +263,8 @@ function videoFilesModelToFormattedJSON (
     .sort(sortByResolutionDesc)
     .map(videoFile => {
       return {
+        id: videoFile.id,
+
         resolution: {
           id: videoFile.resolution,
           label: videoFile.resolution === 0 ? 'Audio' : `${videoFile.resolution}p`
@@ -270,11 +288,14 @@ function videoFilesModelToFormattedJSON (
     })
 }
 
-function addVideoFilesInAPAcc (
-  acc: ActivityUrlObject[] | ActivityTagObject[],
-  video: MVideo,
+function addVideoFilesInAPAcc (options: {
+  acc: ActivityUrlObject[] | ActivityTagObject[]
+  video: MVideo
   files: MVideoFile[]
-) {
+  user?: MUserId
+}) {
+  const { acc, video, files } = options
+
   const trackerUrls = video.getTrackerUrls()
 
   const sortedFiles = (files || [])
@@ -359,7 +380,7 @@ function videoModelToActivityPubObject (video: MVideoAP): VideoObject {
     }
   ]
 
-  addVideoFilesInAPAcc(url, video, video.VideoFiles || [])
+  addVideoFilesInAPAcc({ acc: url, video, files: video.VideoFiles || [] })
 
   for (const playlist of (video.VideoStreamingPlaylists || [])) {
     const tag = playlist.p2pMediaLoaderInfohashes
@@ -371,7 +392,7 @@ function videoModelToActivityPubObject (video: MVideoAP): VideoObject {
       href: playlist.getSha256SegmentsUrl(video)
     })
 
-    addVideoFilesInAPAcc(tag, video, playlist.VideoFiles || [])
+    addVideoFilesInAPAcc({ acc: tag, video, files: playlist.VideoFiles || [] })
 
     url.push({
       type: 'Link',

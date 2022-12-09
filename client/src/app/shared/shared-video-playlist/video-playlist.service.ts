@@ -3,11 +3,13 @@ import { merge, Observable, of, ReplaySubject, Subject } from 'rxjs'
 import { catchError, filter, map, share, switchMap, tap } from 'rxjs/operators'
 import { HttpClient, HttpContext, HttpParams } from '@angular/common/http'
 import { Injectable } from '@angular/core'
-import { AuthUser, ComponentPaginationLight, RestExtractor, RestService, ServerService } from '@app/core'
+import { AuthService, AuthUser, ComponentPaginationLight, RestExtractor, RestService, ServerService } from '@app/core'
 import { buildBulkObservable, objectToFormData } from '@app/helpers'
 import { Account, AccountService, VideoChannel, VideoChannelService } from '@app/shared/shared-main'
 import { NGX_LOADING_BAR_IGNORED } from '@ngx-loading-bar/http-client'
 import {
+  CachedVideoExistInPlaylist,
+  CachedVideosExistInPlaylists,
   ResultList,
   VideoExistInPlaylist,
   VideoPlaylist as VideoPlaylistServerModel,
@@ -23,7 +25,7 @@ import { environment } from '../../../environments/environment'
 import { VideoPlaylistElement } from './video-playlist-element.model'
 import { VideoPlaylist } from './video-playlist.model'
 
-const logger = debug('peertube:playlists:VideoPlaylistService')
+const debugLogger = debug('peertube:playlists:VideoPlaylistService')
 
 export type CachedPlaylist = VideoPlaylist | { id: number, displayName: string }
 
@@ -34,11 +36,11 @@ export class VideoPlaylistService {
 
   // Use a replay subject because we "next" a value before subscribing
   private videoExistsInPlaylistNotifier = new ReplaySubject<number>(1)
-  private videoExistsInPlaylistCacheSubject = new Subject<VideosExistInPlaylists>()
-  private readonly videoExistsInPlaylistObservable: Observable<VideosExistInPlaylists>
+  private videoExistsInPlaylistCacheSubject = new Subject<CachedVideosExistInPlaylists>()
+  private readonly videoExistsInPlaylistObservable: Observable<CachedVideosExistInPlaylists>
 
-  private videoExistsObservableCache: { [ id: number ]: Observable<VideoExistInPlaylist[]> } = {}
-  private videoExistsCache: { [ id: number ]: VideoExistInPlaylist[] } = {}
+  private videoExistsObservableCache: { [ id: number ]: Observable<CachedVideoExistInPlaylist[]> } = {}
+  private videoExistsCache: { [ id: number ]: CachedVideoExistInPlaylist[] } = {}
 
   private myAccountPlaylistCache: ResultList<CachedPlaylist> = undefined
   private myAccountPlaylistCacheRunning: Observable<ResultList<CachedPlaylist>>
@@ -46,6 +48,7 @@ export class VideoPlaylistService {
 
   constructor (
     private authHttp: HttpClient,
+    private auth: AuthService,
     private serverService: ServerService,
     private restExtractor: RestExtractor,
     private restService: RestService
@@ -53,7 +56,14 @@ export class VideoPlaylistService {
     this.videoExistsInPlaylistObservable = merge(
       buildBulkObservable({
         time: 500,
-        bulkGet: this.doVideosExistInPlaylist.bind(this),
+        bulkGet: (videoIds: number[]) => {
+          // We added a delay to the request, so ensure the user is still logged in
+          if (this.auth.isLoggedIn()) {
+            return this.doVideosExistInPlaylist(videoIds)
+          }
+
+          return of({})
+        },
         notifierObservable: this.videoExistsInPlaylistNotifier
       }).pipe(map(({ response }) => response)),
 
@@ -287,15 +297,15 @@ export class VideoPlaylistService {
   }
 
   runPlaylistCheck (videoId: number) {
-    logger('Running playlist check.')
+    debugLogger('Running playlist check.')
 
     if (this.videoExistsCache[videoId]) {
-      logger('Found cache for %d.', videoId)
+      debugLogger('Found cache for %d.', videoId)
 
       return this.videoExistsInPlaylistCacheSubject.next({ [videoId]: this.videoExistsCache[videoId] })
     }
 
-    logger('Fetching from network for %d.', videoId)
+    debugLogger('Fetching from network for %d.', videoId)
     return this.videoExistsInPlaylistNotifier.next(videoId)
   }
 
@@ -338,7 +348,7 @@ export class VideoPlaylistService {
                )
   }
 
-  private doVideosExistInPlaylist (videoIds: number[]): Observable<VideosExistInPlaylists> {
+  doVideosExistInPlaylist (videoIds: number[]): Observable<VideosExistInPlaylists> {
     const url = VideoPlaylistService.MY_VIDEO_PLAYLIST_URL + 'videos-exist'
 
     let params = new HttpParams()

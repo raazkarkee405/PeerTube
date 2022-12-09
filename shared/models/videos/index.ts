@@ -11,6 +11,7 @@ export * from './playlist'
 export * from './rate'
 export * from './stats'
 export * from './transcoding'
+export * from './channel-sync'
 
 export * from './nsfw-policy.type'
 
@@ -31,6 +32,8 @@ export * from './video-storage.enum'
 
 export * from './video-streaming-playlist.model'
 export * from './video-streaming-playlist.type'
+
+export * from './video-token.model'
 
 export * from './video-update.model'
 export * from './video-view.model'

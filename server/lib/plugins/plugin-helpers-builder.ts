@@ -1,4 +1,5 @@
 import express from 'express'
+import { Server } from 'http'
 import { join } from 'path'
 import { ffprobePromise } from '@server/helpers/ffmpeg/ffprobe-utils'
 import { buildLogger } from '@server/helpers/logger'
@@ -13,15 +14,16 @@ import { ServerBlocklistModel } from '@server/models/server/server-blocklist'
 import { UserModel } from '@server/models/user/user'
 import { VideoModel } from '@server/models/video/video'
 import { VideoBlacklistModel } from '@server/models/video/video-blacklist'
-import { MPlugin } from '@server/types/models'
+import { MPlugin, MVideo, UserNotificationModelForApi } from '@server/types/models'
 import { PeerTubeHelpers } from '@server/types/plugins'
 import { VideoBlacklistCreate, VideoStorage } from '@shared/models'
 import { addAccountInBlocklist, addServerInBlocklist, removeAccountFromBlocklist, removeServerFromBlocklist } from '../blocklist'
+import { PeerTubeSocket } from '../peertube-socket'
 import { ServerConfigManager } from '../server-config-manager'
 import { blacklistVideo, unblacklistVideo } from '../video-blacklist'
 import { VideoPathManager } from '../video-path-manager'
 
-function buildPluginHelpers (pluginModel: MPlugin, npmName: string): PeerTubeHelpers {
+function buildPluginHelpers (httpServer: Server, pluginModel: MPlugin, npmName: string): PeerTubeHelpers {
   const logger = buildPluginLogger(npmName)
 
   const database = buildDatabaseHelpers()
@@ -29,11 +31,13 @@ function buildPluginHelpers (pluginModel: MPlugin, npmName: string): PeerTubeHel
 
   const config = buildConfigHelpers()
 
-  const server = buildServerHelpers()
+  const server = buildServerHelpers(httpServer)
 
   const moderation = buildModerationHelpers()
 
   const plugin = buildPluginRelatedHelpers(pluginModel, npmName)
+
+  const socket = buildSocketHelpers()
 
   const user = buildUserHelpers()
 
@@ -45,6 +49,7 @@ function buildPluginHelpers (pluginModel: MPlugin, npmName: string): PeerTubeHel
     moderation,
     plugin,
     server,
+    socket,
     user
   }
 }
@@ -65,8 +70,10 @@ function buildDatabaseHelpers () {
   }
 }
 
-function buildServerHelpers () {
+function buildServerHelpers (httpServer: Server) {
   return {
+    getHTTPServer: () => httpServer,
+
     getServerActor: () => getServerActor()
   }
 }
@@ -214,12 +221,29 @@ function buildPluginRelatedHelpers (plugin: MPlugin, npmName: string) {
 
     getBaseRouterRoute: () => `/plugins/${plugin.name}/${plugin.version}/router/`,
 
+    getBaseWebSocketRoute: () => `/plugins/${plugin.name}/${plugin.version}/ws/`,
+
     getDataDirectoryPath: () => join(CONFIG.STORAGE.PLUGINS_DIR, 'data', npmName)
+  }
+}
+
+function buildSocketHelpers () {
+  return {
+    sendNotification: (userId: number, notification: UserNotificationModelForApi) => {
+      PeerTubeSocket.Instance.sendNotification(userId, notification)
+    },
+    sendVideoLiveNewState: (video: MVideo) => {
+      PeerTubeSocket.Instance.sendVideoLiveNewState(video)
+    }
   }
 }
 
 function buildUserHelpers () {
   return {
+    loadById: (id: number) => {
+      return UserModel.loadByIdFull(id)
+    },
+
     getAuthUser: (res: express.Response) => {
       const user = res.locals.oauth?.token?.User
       if (!user) return undefined

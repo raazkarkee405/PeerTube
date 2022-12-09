@@ -1,4 +1,5 @@
 import { QueryTypes, Sequelize } from 'sequelize'
+import { forceNumber } from '@shared/core-utils'
 import { AbstractCommand } from '../shared'
 
 export class SQLCommand extends AbstractCommand {
@@ -21,6 +22,11 @@ export class SQLCommand extends AbstractCommand {
     if (total === null) return 0
 
     return parseInt(total, 10)
+  }
+
+  async getInternalFileUrl (fileId: number) {
+    return this.selectQuery(`SELECT "fileUrl" FROM "videoFile" WHERE id = ${fileId}`)
+      .then(rows => rows[0].fileUrl as string)
   }
 
   setActorField (to: string, field: string, value: string) {
@@ -58,7 +64,7 @@ export class SQLCommand extends AbstractCommand {
 
     if (!total) return 0
 
-    return parseInt(total + '', 10)
+    return forceNumber(total)
   }
 
   getActorImage (filename: string) {

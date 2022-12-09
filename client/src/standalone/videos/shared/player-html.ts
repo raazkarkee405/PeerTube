@@ -1,5 +1,6 @@
 import { peertubeTranslate } from '../../../../../shared/core-utils/i18n'
 import { VideoDetails } from '../../../../../shared/models'
+import { logger } from '../../../root-helpers'
 import { Translations } from './translations'
 
 export class PlayerHTML {
@@ -29,7 +30,7 @@ export class PlayerHTML {
   }
 
   displayError (text: string, translations: Translations) {
-    console.error(text)
+    logger.error(text)
 
     // Remove video element
     if (this.playerElement) {
@@ -78,7 +79,10 @@ export class PlayerHTML {
   }
 
   removeInformation () {
+    if (!this.informationElement) return
+
     this.removeElement(this.informationElement)
+    this.informationElement = undefined
   }
 
   private getPlaceholderElement () {

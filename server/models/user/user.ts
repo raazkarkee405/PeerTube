@@ -1,4 +1,3 @@
-import { values } from 'lodash'
 import { col, FindOptions, fn, literal, Op, QueryTypes, where, WhereOptions } from 'sequelize'
 import {
   AfterDestroy,
@@ -51,7 +50,6 @@ import {
   isUserP2PEnabledValid,
   isUserPasswordValid,
   isUserRoleValid,
-  isUserUsernameValid,
   isUserVideoLanguages,
   isUserVideoQuotaDailyValid,
   isUserVideoQuotaValid,
@@ -72,6 +70,7 @@ import { VideoImportModel } from '../video/video-import'
 import { VideoLiveModel } from '../video/video-live'
 import { VideoPlaylistModel } from '../video/video-playlist'
 import { UserNotificationSettingModel } from './user-notification-setting'
+import { forceNumber } from '@shared/core-utils'
 
 enum ScopeNames {
   FOR_ME_API = 'FOR_ME_API',
@@ -261,7 +260,6 @@ export class UserModel extends Model<Partial<AttributesOnly<UserModel>>> {
   password: string
 
   @AllowNull(false)
-  @Is('UserUsername', value => throwIfNotValid(value, isUserUsernameValid, 'user name'))
   @Column
   username: string
 
@@ -283,7 +281,7 @@ export class UserModel extends Model<Partial<AttributesOnly<UserModel>>> {
 
   @AllowNull(false)
   @Is('UserNSFWPolicy', value => throwIfNotValid(value, isUserNSFWPolicyValid, 'NSFW policy'))
-  @Column(DataType.ENUM(...values(NSFW_POLICY_TYPES)))
+  @Column(DataType.ENUM(...Object.values(NSFW_POLICY_TYPES)))
   nsfwPolicy: NSFWPolicyType
 
   @AllowNull(false)
@@ -405,6 +403,11 @@ export class UserModel extends Model<Partial<AttributesOnly<UserModel>>> {
   @Default(null)
   @Column
   lastLoginDate: Date
+
+  @AllowNull(true)
+  @Default(null)
+  @Column
+  otpSecret: string
 
   @CreatedAt
   createdAt: Date
@@ -889,34 +892,36 @@ export class UserModel extends Model<Partial<AttributesOnly<UserModel>>> {
       autoPlayNextVideoPlaylist: this.autoPlayNextVideoPlaylist,
       videoLanguages: this.videoLanguages,
 
-      role: this.role,
-      roleLabel: USER_ROLE_LABELS[this.role],
+      role: {
+        id: this.role,
+        label: USER_ROLE_LABELS[this.role]
+      },
 
       videoQuota: this.videoQuota,
       videoQuotaDaily: this.videoQuotaDaily,
 
       videoQuotaUsed: videoQuotaUsed !== undefined
-        ? parseInt(videoQuotaUsed + '', 10) + LiveQuotaStore.Instance.getLiveQuotaOf(this.id)
+        ? forceNumber(videoQuotaUsed) + LiveQuotaStore.Instance.getLiveQuotaOf(this.id)
         : undefined,
 
       videoQuotaUsedDaily: videoQuotaUsedDaily !== undefined
-        ? parseInt(videoQuotaUsedDaily + '', 10) + LiveQuotaStore.Instance.getLiveQuotaOf(this.id)
+        ? forceNumber(videoQuotaUsedDaily) + LiveQuotaStore.Instance.getLiveQuotaOf(this.id)
         : undefined,
 
       videosCount: videosCount !== undefined
-        ? parseInt(videosCount + '', 10)
+        ? forceNumber(videosCount)
         : undefined,
       abusesCount: abusesCount
-        ? parseInt(abusesCount, 10)
+        ? forceNumber(abusesCount)
         : undefined,
       abusesAcceptedCount: abusesAcceptedCount
-        ? parseInt(abusesAcceptedCount, 10)
+        ? forceNumber(abusesAcceptedCount)
         : undefined,
       abusesCreatedCount: abusesCreatedCount !== undefined
-        ? parseInt(abusesCreatedCount + '', 10)
+        ? forceNumber(abusesCreatedCount)
         : undefined,
       videoCommentsCount: videoCommentsCount !== undefined
-        ? parseInt(videoCommentsCount + '', 10)
+        ? forceNumber(videoCommentsCount)
         : undefined,
 
       noInstanceConfigWarningModal: this.noInstanceConfigWarningModal,
@@ -938,7 +943,9 @@ export class UserModel extends Model<Partial<AttributesOnly<UserModel>>> {
 
       pluginAuth: this.pluginAuth,
 
-      lastLoginDate: this.lastLoginDate
+      lastLoginDate: this.lastLoginDate,
+
+      twoFactorEnabled: !!this.otpSecret
     }
 
     if (parameters.withAdminFlags) {

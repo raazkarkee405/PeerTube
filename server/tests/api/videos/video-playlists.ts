@@ -1,7 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
 
-import 'mocha'
-import * as chai from 'chai'
+import { expect } from 'chai'
 import { checkPlaylistFilesWereRemoved, testImage } from '@server/tests/shared'
 import { wait } from '@shared/core-utils'
 import {
@@ -24,8 +23,7 @@ import {
   setDefaultVideoChannel,
   waitJobs
 } from '@shared/server-commands'
-
-const expect = chai.expect
+import { uuidToShort } from '@shared/extra-utils'
 
 async function checkPlaylistElementType (
   servers: PeerTubeServer[],
@@ -59,6 +57,7 @@ describe('Test video playlists', function () {
   let playlistServer2UUID2: string
 
   let playlistServer1Id: number
+  let playlistServer1DisplayName: string
   let playlistServer1UUID: string
   let playlistServer1UUID2: string
 
@@ -73,7 +72,7 @@ describe('Test video playlists', function () {
   let commands: PlaylistsCommand[]
 
   before(async function () {
-    this.timeout(120000)
+    this.timeout(240000)
 
     servers = await createMultipleServers(3)
 
@@ -492,15 +491,17 @@ describe('Test video playlists', function () {
         return commands[0].addElement({ playlistId: playlistServer1Id, attributes })
       }
 
+      const playlistDisplayName = 'playlist 4'
       const playlist = await commands[0].create({
         attributes: {
-          displayName: 'playlist 4',
+          displayName: playlistDisplayName,
           privacy: VideoPlaylistPrivacy.PUBLIC,
           videoChannelId: servers[0].store.channel.id
         }
       })
 
       playlistServer1Id = playlist.id
+      playlistServer1DisplayName = playlistDisplayName
       playlistServer1UUID = playlist.uuid
 
       await addVideo({ videoId: servers[0].store.videos[0].uuid, startTimestamp: 15, stopTimestamp: 28 })
@@ -911,6 +912,8 @@ describe('Test video playlists', function () {
         const elem = obj[servers[0].store.videos[0].id]
         expect(elem).to.have.lengthOf(1)
         expect(elem[0].playlistElementId).to.exist
+        expect(elem[0].playlistDisplayName).to.equal(playlistServer1DisplayName)
+        expect(elem[0].playlistShortUUID).to.equal(uuidToShort(playlistServer1UUID))
         expect(elem[0].playlistId).to.equal(playlistServer1Id)
         expect(elem[0].startTimestamp).to.equal(15)
         expect(elem[0].stopTimestamp).to.equal(28)
@@ -920,6 +923,8 @@ describe('Test video playlists', function () {
         const elem = obj[servers[0].store.videos[3].id]
         expect(elem).to.have.lengthOf(1)
         expect(elem[0].playlistElementId).to.equal(playlistElementServer1Video4)
+        expect(elem[0].playlistDisplayName).to.equal(playlistServer1DisplayName)
+        expect(elem[0].playlistShortUUID).to.equal(uuidToShort(playlistServer1UUID))
         expect(elem[0].playlistId).to.equal(playlistServer1Id)
         expect(elem[0].startTimestamp).to.equal(1)
         expect(elem[0].stopTimestamp).to.equal(35)
@@ -929,6 +934,8 @@ describe('Test video playlists', function () {
         const elem = obj[servers[0].store.videos[4].id]
         expect(elem).to.have.lengthOf(1)
         expect(elem[0].playlistId).to.equal(playlistServer1Id)
+        expect(elem[0].playlistDisplayName).to.equal(playlistServer1DisplayName)
+        expect(elem[0].playlistShortUUID).to.equal(uuidToShort(playlistServer1UUID))
         expect(elem[0].startTimestamp).to.equal(45)
         expect(elem[0].stopTimestamp).to.equal(null)
       }
@@ -1052,7 +1059,7 @@ describe('Test video playlists', function () {
       this.timeout(30000)
 
       for (const server of servers) {
-        await checkPlaylistFilesWereRemoved(playlistServer1UUID, server.internalServerNumber)
+        await checkPlaylistFilesWereRemoved(playlistServer1UUID, server)
       }
     })
 

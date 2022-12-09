@@ -98,7 +98,10 @@ export class VideoBlockListComponent extends RestTable implements OnInit {
 
             this.videoService.removeVideo(videoBlock.video.id)
               .subscribe({
-                next: () => this.notifier.success($localize`Video deleted.`),
+                next: () => {
+                  this.notifier.success($localize`Video deleted.`)
+                  this.reloadData()
+                },
 
                 error: err => this.notifier.error(err.message)
               })
@@ -124,7 +127,7 @@ export class VideoBlockListComponent extends RestTable implements OnInit {
   }
 
   toHtml (text: string) {
-    return this.markdownRenderer.textMarkdownToHTML(text)
+    return this.markdownRenderer.textMarkdownToHTML({ markdown: text })
   }
 
   async unblockVideo (entry: VideoBlacklist) {
@@ -145,15 +148,15 @@ export class VideoBlockListComponent extends RestTable implements OnInit {
   }
 
   getVideoEmbed (entry: VideoBlacklist) {
-    return buildVideoOrPlaylistEmbed(
-      decorateVideoLink({
+    return buildVideoOrPlaylistEmbed({
+      embedUrl: decorateVideoLink({
         url: buildVideoEmbedLink(entry.video, environment.originServerUrl),
 
         title: false,
         warningTitle: false
       }),
-      entry.video.name
-    )
+      embedTitle: entry.video.name
+    })
   }
 
   protected reloadData () {

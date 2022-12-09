@@ -6,6 +6,7 @@ import {
   VideoCaption,
   VideoDetails,
   VideoPlaylistElement,
+  VideoState,
   VideoStreamingPlaylistType
 } from '../../../../../shared/models'
 import { P2PMediaLoaderOptions, PeertubePlayerManagerOptions, PlayerMode, VideoJSCaption } from '../../../assets/player'
@@ -14,8 +15,10 @@ import {
   getParamString,
   getParamToggle,
   isP2PEnabled,
+  logger,
   peertubeLocalStorage,
-  UserLocalStorageKeys
+  UserLocalStorageKeys,
+  videoRequiresAuth
 } from '../../../root-helpers'
 import { PeerTubePlugin } from './peertube-plugin'
 import { PlayerHTML } from './player-html'
@@ -107,6 +110,10 @@ export class PlayerManagerOptions {
       const params = new URL(window.location.toString()).searchParams
 
       this.autoplay = getParamToggle(params, 'autoplay', false)
+      // Disable auto play on live videos that are not streamed
+      if (video.state.id === VideoState.LIVE_ENDED || video.state.id === VideoState.WAITING_FOR_LIVE) {
+        this.autoplay = false
+      }
 
       this.controls = getParamToggle(params, 'controls', true)
       this.controlBar = getParamToggle(params, 'controlBar', true)
@@ -137,7 +144,7 @@ export class PlayerManagerOptions {
         else this.mode = 'webtorrent'
       }
     } catch (err) {
-      console.error('Cannot get params from URL.', err)
+      logger.error('Cannot get params from URL.', err)
     }
   }
 
@@ -147,6 +154,11 @@ export class PlayerManagerOptions {
     video: VideoDetails
     captionsResponse: Response
     live?: LiveVideo
+
+    forceAutoplay: boolean
+
+    authorizationHeader: () => string
+    videoFileToken: () => string
 
     serverConfig: HTMLServerConfig
 
@@ -163,9 +175,12 @@ export class PlayerManagerOptions {
       video,
       captionsResponse,
       alreadyHadPlayer,
+      videoFileToken,
       translations,
+      forceAutoplay,
       playlistTracker,
       live,
+      authorizationHeader,
       serverConfig
     } = options
 
@@ -175,6 +190,7 @@ export class PlayerManagerOptions {
       common: {
         // Autoplay in playlist mode
         autoplay: alreadyHadPlayer ? true : this.autoplay,
+        forceAutoplay,
 
         controls: this.controls,
         controlBar: this.controlBar,
@@ -197,6 +213,7 @@ export class PlayerManagerOptions {
         videoCaptions,
         inactivityTimeout: 2500,
         videoViewUrl: this.videoFetcher.getVideoViewsUrl(video.uuid),
+        metricsUrl: window.location.origin + '/api/v1/metrics/playback',
 
         videoShortUUID: video.shortUUID,
         videoUUID: video.uuid,
@@ -219,6 +236,10 @@ export class PlayerManagerOptions {
         language: navigator.language,
         embedUrl: window.location.origin + video.embedPath,
         embedTitle: video.name,
+
+        requiresAuth: videoRequiresAuth(video),
+        authorizationHeader,
+        videoFileToken,
 
         errorNotifier: () => {
           // Empty, we don't have a notifier in the embed

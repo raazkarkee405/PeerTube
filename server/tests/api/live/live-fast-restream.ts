@@ -1,7 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
 
-import 'mocha'
-import * as chai from 'chai'
+import { expect } from 'chai'
 import { wait } from '@shared/core-utils'
 import { HttpStatusCode, LiveVideoCreate, VideoPrivacy } from '@shared/models'
 import {
@@ -14,8 +13,6 @@ import {
   stopFfmpeg,
   waitJobs
 } from '@shared/server-commands'
-
-const expect = chai.expect
 
 describe('Fast restream in live', function () {
   let server: PeerTubeServer
@@ -46,12 +43,31 @@ describe('Fast restream in live', function () {
     // Streaming session #1
     let ffmpegCommand = await server.live.sendRTMPStreamInVideo(rtmpOptions)
     await server.live.waitUntilPublished({ videoId: liveVideoUUID })
+
+    const video = await server.videos.get({ id: liveVideoUUID })
+    const session1PlaylistId = video.streamingPlaylists[0].id
+
     await stopFfmpeg(ffmpegCommand)
     await server.live.waitUntilWaiting({ videoId: liveVideoUUID })
 
     // Streaming session #2
     ffmpegCommand = await server.live.sendRTMPStreamInVideo(rtmpOptions)
-    await server.live.waitUntilSegmentGeneration({ videoUUID: liveVideoUUID, segment: 0, playlistNumber: 0, totalSessions: 2 })
+
+    let hasNewPlaylist = false
+    do {
+      const video = await server.videos.get({ id: liveVideoUUID })
+      hasNewPlaylist = video.streamingPlaylists.length === 1 && video.streamingPlaylists[0].id !== session1PlaylistId
+
+      await wait(100)
+    } while (!hasNewPlaylist)
+
+    await server.live.waitUntilSegmentGeneration({
+      server,
+      videoUUID: liveVideoUUID,
+      segment: 1,
+      playlistNumber: 0,
+      objectStorage: false
+    })
 
     return { ffmpegCommand, liveVideoUUID }
   }
@@ -62,9 +78,9 @@ describe('Fast restream in live', function () {
       const video = await server.videos.get({ id: liveId })
       expect(video.streamingPlaylists).to.have.lengthOf(1)
 
-      await server.live.getSegment({ videoUUID: liveId, segment: 0, playlistNumber: 0 })
-      await makeRawRequest(video.streamingPlaylists[0].playlistUrl, HttpStatusCode.OK_200)
-      await makeRawRequest(video.streamingPlaylists[0].segmentsSha256Url, HttpStatusCode.OK_200)
+      await server.live.getSegmentFile({ videoUUID: liveId, segment: 0, playlistNumber: 0 })
+      await makeRawRequest({ url: video.streamingPlaylists[0].playlistUrl, expectedStatus: HttpStatusCode.OK_200 })
+      await makeRawRequest({ url: video.streamingPlaylists[0].segmentsSha256Url, expectedStatus: HttpStatusCode.OK_200 })
 
       await wait(100)
     }
@@ -114,7 +130,7 @@ describe('Fast restream in live', function () {
   })
 
   it('Should correctly fast reastream in a permanent live with and without save replay', async function () {
-    this.timeout(240000)
+    this.timeout(480000)
 
     // A test can take a long time, so prefer to run them in parallel
     await Promise.all([

@@ -33,8 +33,14 @@ $ sudo docker run -p 10389:10389 chocobozzz/docker-test-openldap
 
 Ensure you also have these commands:
 
-```
+```bash
 $ exiftool --help
+$ parallel --help
+```
+
+Otherwise, install the packages. On Debian-based systems (like Debian, Ubuntu or Mint):
+```bash
+$ sudo apt-get install parallel libimage-exiftool-perl
 ```
 
 ### Test
@@ -71,6 +77,19 @@ While testing, you might want to display a server's logs to understand why they 
 
 ```bash
 NODE_APP_INSTANCE=1 NODE_ENV=test npm run parse-log -- --level debug | less +GF
+```
+
+You can also:
+ - checkout only the latest logs (PeerTube >= 5.0):
+
+```bash
+tail -n 100 test1/logs/peertube.log | npm run parse-log -- --level debug --files -
+```
+
+ - continuously print the latests logs (PeerTube >= 5.0):
+
+```bash
+tail -f test1/logs/peertube.log | npm run parse-log -- --level debug --files -
 ```
 
 

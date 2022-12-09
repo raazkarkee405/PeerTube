@@ -1,5 +1,4 @@
-import { omit } from 'lodash'
-import { pick } from '@shared/core-utils'
+import { omit, pick } from '@shared/core-utils'
 import {
   HttpStatusCode,
   MyUser,
@@ -203,7 +202,8 @@ export class UsersCommand extends AbstractCommand {
       token,
       userId: user.id,
       userChannelId: me.videoChannels[0].id,
-      userChannelName: me.videoChannels[0].name
+      userChannelName: me.videoChannels[0].name,
+      password
     }
   }
 
@@ -218,12 +218,13 @@ export class UsersCommand extends AbstractCommand {
     username: string
     password?: string
     displayName?: string
+    email?: string
     channel?: {
       name: string
       displayName: string
     }
   }) {
-    const { username, password = 'password', displayName, channel } = options
+    const { username, password = 'password', displayName, channel, email = username + '@example.com' } = options
     const path = '/api/v1/users/register'
 
     return this.postBodyRequest({
@@ -233,7 +234,7 @@ export class UsersCommand extends AbstractCommand {
       fields: {
         username,
         password,
-        email: username + '@example.com',
+        email,
         displayName,
         channel
       },
@@ -298,7 +299,7 @@ export class UsersCommand extends AbstractCommand {
   updateMe (options: OverrideCommandOptions & UserUpdateMe) {
     const path = '/api/v1/users/me'
 
-    const toSend: UserUpdateMe = omit(options, 'url', 'accessToken')
+    const toSend: UserUpdateMe = omit(options, [ 'expectedStatus', 'token' ])
 
     return this.putBodyRequest({
       ...options,

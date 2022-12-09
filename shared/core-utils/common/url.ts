@@ -1,6 +1,24 @@
 import { Video, VideoPlaylist } from '../../models'
 import { secondsToTime } from './date'
 
+function addQueryParams (url: string, params: { [ id: string ]: string }) {
+  const objUrl = new URL(url)
+
+  for (const key of Object.keys(params)) {
+    objUrl.searchParams.append(key, params[key])
+  }
+
+  return objUrl.toString()
+}
+
+function removeQueryParams (url: string) {
+  const objUrl = new URL(url)
+
+  objUrl.searchParams.forEach((_v, k) => objUrl.searchParams.delete(k))
+
+  return objUrl.toString()
+}
+
 function buildPlaylistLink (playlist: Pick<VideoPlaylist, 'shortUUID'>, base?: string) {
   return (base ?? window.location.origin) + buildPlaylistWatchPath(playlist)
 }
@@ -103,6 +121,9 @@ function decoratePlaylistLink (options: {
 // ---------------------------------------------------------------------------
 
 export {
+  addQueryParams,
+  removeQueryParams,
+
   buildPlaylistLink,
   buildVideoLink,
 

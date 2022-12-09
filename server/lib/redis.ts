@@ -1,4 +1,4 @@
-import { createClient, RedisClientOptions, RedisModules } from 'redis'
+import IoRedis, { RedisOptions } from 'ioredis'
 import { exists } from '@server/helpers/custom-validators/misc'
 import { sha256 } from '@shared/extra-utils'
 import { logger } from '../helpers/logger'
@@ -9,6 +9,7 @@ import {
   CONTACT_FORM_LIFETIME,
   RESUMABLE_UPLOAD_SESSION_LIFETIME,
   TRACKER_RATE_LIMITS,
+  TWO_FACTOR_AUTH_REQUEST_TOKEN_LIFETIME,
   USER_EMAIL_VERIFY_LIFETIME,
   USER_PASSWORD_CREATE_LIFETIME,
   USER_PASSWORD_RESET_LIFETIME,
@@ -21,7 +22,7 @@ class Redis {
   private static instance: Redis
   private initialized = false
   private connected = false
-  private client: ReturnType<typeof createClient>
+  private client: IoRedis
   private prefix: string
 
   private constructor () {
@@ -32,45 +33,42 @@ class Redis {
     if (this.initialized === true) return
     this.initialized = true
 
-    this.client = createClient(Redis.getRedisClientOptions())
-
     logger.info('Connecting to redis...')
 
-    this.client.connect()
-      .then(() => {
-        logger.info('Connected to redis.')
+    this.client = new IoRedis(Redis.getRedisClientOptions('', { enableAutoPipelining: true }))
+    this.client.on('error', err => logger.error('Redis failed to connect', { err }))
+    this.client.on('connect', () => {
+      logger.info('Connected to redis.')
 
-        this.connected = true
-      }).catch(err => {
-        logger.error('Cannot connect to redis', { err })
-        process.exit(-1)
-      })
+      this.connected = true
+    })
+    this.client.on('reconnecting', (ms) => {
+      logger.error(`Reconnecting to redis in ${ms}.`)
+    })
+    this.client.on('close', () => {
+      logger.error('Connection to redis has closed.')
+      this.connected = false
+    })
+
+    this.client.on('end', () => {
+      logger.error('Connection to redis has closed and no more reconnects will be done.')
+    })
 
     this.prefix = 'redis-' + WEBSERVER.HOST + '-'
   }
 
-  static getRedisClientOptions () {
-    let config: RedisClientOptions<RedisModules, {}> = {
-      socket: {
-        connectTimeout: 20000 // Could be slow since node use sync call to compile PeerTube
-      }
+  static getRedisClientOptions (connectionName?: string, options: RedisOptions = {}): RedisOptions {
+    return {
+      connectionName: [ 'PeerTube', connectionName ].join(''),
+      connectTimeout: 20000, // Could be slow since node use sync call to compile PeerTube
+      password: CONFIG.REDIS.AUTH,
+      db: CONFIG.REDIS.DB,
+      host: CONFIG.REDIS.HOSTNAME,
+      port: CONFIG.REDIS.PORT,
+      path: CONFIG.REDIS.SOCKET,
+      showFriendlyErrorStack: true,
+      ...options
     }
-
-    if (CONFIG.REDIS.AUTH) {
-      config = { ...config, password: CONFIG.REDIS.AUTH }
-    }
-
-    if (CONFIG.REDIS.DB) {
-      config = { ...config, database: CONFIG.REDIS.DB }
-    }
-
-    if (CONFIG.REDIS.HOSTNAME && CONFIG.REDIS.PORT) {
-      config.socket = { ...config.socket, host: CONFIG.REDIS.HOSTNAME, port: CONFIG.REDIS.PORT }
-    } else {
-      config.socket = { ...config.socket, path: CONFIG.REDIS.SOCKET }
-    }
-
-    return config
   }
 
   getClient () {
@@ -107,8 +105,22 @@ class Redis {
     return this.removeValue(this.generateResetPasswordKey(userId))
   }
 
-  async getResetPasswordLink (userId: number) {
+  async getResetPasswordVerificationString (userId: number) {
     return this.getValue(this.generateResetPasswordKey(userId))
+  }
+
+  /* ************ Two factor auth request ************ */
+
+  async setTwoFactorRequest (userId: number, otpSecret: string) {
+    const requestToken = await generateRandomString(32)
+
+    await this.setValue(this.generateTwoFactorRequestKey(userId, requestToken), otpSecret, TWO_FACTOR_AUTH_REQUEST_TOKEN_LIFETIME)
+
+    return requestToken
+  }
+
+  async getTwoFactorRequestToken (userId: number, requestToken: string) {
+    return this.getValue(this.generateTwoFactorRequestKey(userId, requestToken))
   }
 
   /* ************ Email verification ************ */
@@ -341,6 +353,10 @@ class Redis {
     return 'reset-password-' + userId
   }
 
+  private generateTwoFactorRequestKey (userId: number, token: string) {
+    return 'two-factor-request-' + userId + '-' + token
+  }
+
   private generateVerifyEmailKey (userId: number) {
     return 'verify-email-' + userId
   }
@@ -368,15 +384,15 @@ class Redis {
   }
 
   private getSet (key: string) {
-    return this.client.sMembers(this.prefix + key)
+    return this.client.smembers(this.prefix + key)
   }
 
   private addToSet (key: string, value: string) {
-    return this.client.sAdd(this.prefix + key, value)
+    return this.client.sadd(this.prefix + key, value)
   }
 
   private deleteFromSet (key: string, value: string) {
-    return this.client.sRem(this.prefix + key, value)
+    return this.client.srem(this.prefix + key, value)
   }
 
   private deleteKey (key: string) {
@@ -390,16 +406,14 @@ class Redis {
     return JSON.parse(value)
   }
 
-  private setObject (key: string, value: { [ id: string ]: number | string }) {
-    return this.setValue(key, JSON.stringify(value))
+  private setObject (key: string, value: { [ id: string ]: number | string }, expirationMilliseconds?: number) {
+    return this.setValue(key, JSON.stringify(value), expirationMilliseconds)
   }
 
   private async setValue (key: string, value: string, expirationMilliseconds?: number) {
-    const options = expirationMilliseconds
-      ? { PX: expirationMilliseconds }
-      : {}
-
-    const result = await this.client.set(this.prefix + key, value, options)
+    const result = expirationMilliseconds !== undefined
+      ? await this.client.set(this.prefix + key, value, 'PX', expirationMilliseconds)
+      : await this.client.set(this.prefix + key, value)
 
     if (result !== 'OK') throw new Error('Redis set result is not OK.')
   }

@@ -1,4 +1,3 @@
-import { values } from 'lodash'
 import { literal, Op, QueryTypes, Transaction } from 'sequelize'
 import {
   AllowNull,
@@ -19,7 +18,7 @@ import {
 import { activityPubContextify } from '@server/lib/activitypub/context'
 import { getBiggestActorImage } from '@server/lib/actor-image'
 import { ModelCache } from '@server/models/model-cache'
-import { getLowercaseExtension } from '@shared/core-utils'
+import { forceNumber, getLowercaseExtension } from '@shared/core-utils'
 import { ActivityIconObject, ActivityPubActorType, ActorImageType } from '@shared/models'
 import { AttributesOnly } from '@shared/typescript-utils'
 import {
@@ -163,7 +162,7 @@ export const unusedActorAttributesForAPI = [
 export class ActorModel extends Model<Partial<AttributesOnly<ActorModel>>> {
 
   @AllowNull(false)
-  @Column(DataType.ENUM(...values(ACTIVITY_PUB_ACTOR_TYPES)))
+  @Column(DataType.ENUM(...Object.values(ACTIVITY_PUB_ACTOR_TYPES)))
   type: ActivityPubActorType
 
   @AllowNull(false)
@@ -447,7 +446,7 @@ export class ActorModel extends Model<Partial<AttributesOnly<ActorModel>>> {
   }
 
   static rebuildFollowsCount (ofId: number, type: 'followers' | 'following', transaction?: Transaction) {
-    const sanitizedOfId = parseInt(ofId + '', 10)
+    const sanitizedOfId = forceNumber(ofId)
     const where = { id: sanitizedOfId }
 
     let columnToUpdate: string
@@ -462,7 +461,7 @@ export class ActorModel extends Model<Partial<AttributesOnly<ActorModel>>> {
     }
 
     return ActorModel.update({
-      [columnToUpdate]: literal(`(SELECT COUNT(*) FROM "actorFollow" WHERE "${columnOfCount}" = ${sanitizedOfId})`)
+      [columnToUpdate]: literal(`(SELECT COUNT(*) FROM "actorFollow" WHERE "${columnOfCount}" = ${sanitizedOfId} AND "state" = 'accepted')`)
     }, { where, transaction })
   }
 

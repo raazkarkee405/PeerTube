@@ -1,13 +1,10 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
 
-import 'mocha'
-import * as chai from 'chai'
+import { expect } from 'chai'
 import { FfmpegCommand } from 'fluent-ffmpeg'
 import { prepareViewsServers, prepareViewsVideos, processViewersStats } from '@server/tests/shared'
 import { VideoStatsTimeserie, VideoStatsTimeserieMetric } from '@shared/models'
 import { cleanupTests, PeerTubeServer, stopFfmpeg } from '@shared/server-commands'
-
-const expect = chai.expect
 
 function buildOneMonthAgo () {
   const monthAgo = new Date()
@@ -33,7 +30,7 @@ describe('Test views timeserie stats', function () {
     let vodVideoId: string
 
     before(async function () {
-      this.timeout(120000);
+      this.timeout(240000);
 
       ({ vodVideoId } = await prepareViewsVideos({ servers, live: false, vod: true }))
     })
@@ -84,7 +81,7 @@ describe('Test views timeserie stats', function () {
     }
 
     before(async function () {
-      this.timeout(120000);
+      this.timeout(240000);
 
       ({ vodVideoId, liveVideoId, ffmpegCommand: command } = await prepareViewsVideos({ servers, live: true, vod: true }))
     })

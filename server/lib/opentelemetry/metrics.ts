@@ -1,11 +1,19 @@
 import { Application, Request, Response } from 'express'
-import { Meter, metrics } from '@opentelemetry/api-metrics'
+import { Meter, metrics } from '@opentelemetry/api'
 import { PrometheusExporter } from '@opentelemetry/exporter-prometheus'
-import { MeterProvider } from '@opentelemetry/sdk-metrics-base'
+import { MeterProvider } from '@opentelemetry/sdk-metrics'
 import { logger } from '@server/helpers/logger'
 import { CONFIG } from '@server/initializers/config'
-import { JobQueue } from '../job-queue'
-import { StatsObserverBuilder } from './metric-helpers'
+import { MVideoImmutable } from '@server/types/models'
+import { PlaybackMetricCreate } from '@shared/models'
+import {
+  JobQueueObserversBuilder,
+  LivesObserversBuilder,
+  NodeJSObserversBuilder,
+  PlaybackMetrics,
+  StatsObserversBuilder,
+  ViewersObserversBuilder
+} from './metric-helpers'
 
 class OpenTelemetryMetrics {
 
@@ -14,6 +22,8 @@ class OpenTelemetryMetrics {
   private meter: Meter
 
   private onRequestDuration: (req: Request, res: Response) => void
+
+  private playbackMetrics: PlaybackMetrics
 
   private constructor () {}
 
@@ -36,48 +46,44 @@ class OpenTelemetryMetrics {
 
     logger.info('Registering Open Telemetry metrics')
 
-    const provider = new MeterProvider()
+    const provider = new MeterProvider({
+      views: [
+        ...NodeJSObserversBuilder.getViews()
+      ]
+    })
 
-    provider.addMetricReader(new PrometheusExporter({ port: CONFIG.OPEN_TELEMETRY.METRICS.PROMETHEUS_EXPORTER.PORT }))
+    provider.addMetricReader(new PrometheusExporter({
+      host: CONFIG.OPEN_TELEMETRY.METRICS.PROMETHEUS_EXPORTER.HOSTNAME,
+      port: CONFIG.OPEN_TELEMETRY.METRICS.PROMETHEUS_EXPORTER.PORT
+    }))
 
     metrics.setGlobalMeterProvider(provider)
 
     this.meter = metrics.getMeter('default')
 
-    this.buildMemoryObserver()
     this.buildRequestObserver()
-    this.buildJobQueueObserver()
 
-    const statsObserverBuilder = new StatsObserverBuilder(this.meter)
-    statsObserverBuilder.buildObservers()
+    this.playbackMetrics = new PlaybackMetrics(this.meter)
+    this.playbackMetrics.buildCounters()
+
+    const nodeJSObserversBuilder = new NodeJSObserversBuilder(this.meter)
+    nodeJSObserversBuilder.buildObservers()
+
+    const jobQueueObserversBuilder = new JobQueueObserversBuilder(this.meter)
+    jobQueueObserversBuilder.buildObservers()
+
+    const statsObserversBuilder = new StatsObserversBuilder(this.meter)
+    statsObserversBuilder.buildObservers()
+
+    const livesObserversBuilder = new LivesObserversBuilder(this.meter)
+    livesObserversBuilder.buildObservers()
+
+    const viewersObserversBuilder = new ViewersObserversBuilder(this.meter)
+    viewersObserversBuilder.buildObservers()
   }
 
-  private buildMemoryObserver () {
-    this.meter.createObservableGauge('nodejs_memory_usage_bytes', {
-      description: 'Memory'
-    }).addCallback(observableResult => {
-      const current = process.memoryUsage()
-
-      observableResult.observe(current.heapTotal, { memoryType: 'heapTotal' })
-      observableResult.observe(current.heapUsed, { memoryType: 'heapUsed' })
-      observableResult.observe(current.arrayBuffers, { memoryType: 'arrayBuffers' })
-      observableResult.observe(current.external, { memoryType: 'external' })
-      observableResult.observe(current.rss, { memoryType: 'rss' })
-    })
-  }
-
-  private buildJobQueueObserver () {
-    this.meter.createObservableGauge('peertube_job_queue_total', {
-      description: 'Total jobs in the PeerTube job queue'
-    }).addCallback(async observableResult => {
-      const stats = await JobQueue.Instance.getStats()
-
-      for (const { jobType, counts } of stats) {
-        for (const state of Object.keys(counts)) {
-          observableResult.observe(counts[state], { jobType, state })
-        }
-      }
-    })
+  observePlaybackMetric (video: MVideoImmutable, metrics: PlaybackMetricCreate) {
+    this.playbackMetrics.observe(video, metrics)
   }
 
   private buildRequestObserver () {

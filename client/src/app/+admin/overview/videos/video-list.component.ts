@@ -8,7 +8,8 @@ import { AdvancedInputFilter } from '@app/shared/shared-forms'
 import { DropdownAction, Video, VideoService } from '@app/shared/shared-main'
 import { VideoBlockComponent, VideoBlockService } from '@app/shared/shared-moderation'
 import { VideoActionsDisplayType } from '@app/shared/shared-video-miniature'
-import { UserRight, VideoPrivacy, VideoState, VideoStreamingPlaylistType } from '@shared/models'
+import { getAllFiles } from '@shared/core-utils'
+import { UserRight, VideoFile, VideoPrivacy, VideoState, VideoStreamingPlaylistType } from '@shared/models'
 import { VideoAdminService } from './video-admin.service'
 
 @Component({
@@ -166,6 +167,18 @@ export class VideoListComponent extends RestTable implements OnInit {
     return video.files.length !== 0
   }
 
+  hasObjectStorage (video: Video) {
+    if (!video.isLocal) return false
+
+    const files = getAllFiles(video)
+
+    return files.some(f => !f.fileUrl.startsWith(window.location.origin))
+  }
+
+  canRemoveOneFile (video: Video) {
+    return video.canRemoveOneFile(this.authUser)
+  }
+
   getFilesSize (video: Video) {
     let files = video.files
 
@@ -190,6 +203,22 @@ export class VideoListComponent extends RestTable implements OnInit {
         next: resultList => {
           this.videos = resultList.data
           this.totalRecords = resultList.total
+        },
+
+        error: err => this.notifier.error(err.message)
+      })
+  }
+
+  async removeVideoFile (video: Video, file: VideoFile, type: 'hls' | 'webtorrent') {
+    const message = $localize`Are you sure you want to delete this ${file.resolution.label} file?`
+    const res = await this.confirmService.confirm(message, $localize`Delete file`)
+    if (res === false) return
+
+    this.videoService.removeFile(video.uuid, file.id, type)
+      .subscribe({
+        next: () => {
+          this.notifier.success($localize`File removed.`)
+          this.reloadData()
         },
 
         error: err => this.notifier.error(err.message)

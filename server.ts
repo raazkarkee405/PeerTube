@@ -45,7 +45,12 @@ try {
 
 import { checkConfig, checkActivityPubUrls, checkFFmpegVersion } from './server/initializers/checker-after-init'
 
-checkConfig()
+try {
+  checkConfig()
+} catch (err) {
+  logger.error('Config error.', { err })
+  process.exit(-1)
+}
 
 // Trust our proxy (IP forwarding...)
 app.set('trust proxy', CONFIG.TRUST_PROXY)
@@ -102,7 +107,7 @@ import {
   wellKnownRouter,
   lazyStaticRouter,
   servicesRouter,
-  liveRouter,
+  objectStorageProxyRouter,
   pluginsRouter,
   webfingerRouter,
   trackerRouter,
@@ -138,6 +143,8 @@ import { ServerConfigManager } from '@server/lib/server-config-manager'
 import { VideoViewsManager } from '@server/lib/views/video-views-manager'
 import { isTestOrDevInstance } from './server/helpers/core-utils'
 import { OpenTelemetryMetrics } from '@server/lib/opentelemetry/metrics'
+import { ApplicationModel } from '@server/models/application/application'
+import { VideoChannelSyncLatestScheduler } from '@server/lib/schedulers/video-channel-sync-latest-scheduler'
 
 // ----------- Command line -----------
 
@@ -219,9 +226,6 @@ app.use(apiRoute, apiRouter)
 // Services (oembed...)
 app.use('/services', servicesRouter)
 
-// Live streaming
-app.use('/live', liveRouter)
-
 // Plugins & themes
 app.use('/', pluginsRouter)
 
@@ -237,6 +241,7 @@ app.use('/', wellKnownRouter)
 app.use('/', miscRouter)
 app.use('/', downloadRouter)
 app.use('/', lazyStaticRouter)
+app.use('/', objectStorageProxyRouter)
 
 // Client files, last valid routes!
 const cliOptions = cli.opts<{ client: boolean, plugins: boolean }>()
@@ -256,9 +261,16 @@ app.use((err, _req, res: express.Response, _next) => {
   if (err) {
     error = err.stack || err.message || err
   }
+
   // Handling Sequelize error traces
-  const sql = err.parent ? err.parent.sql : undefined
-  logger.error('Error in controller.', { err: error, sql })
+  const sql = err?.parent ? err.parent.sql : undefined
+
+  // Help us to debug SequelizeConnectionAcquireTimeoutError errors
+  const activeRequests = err?.name === 'SequelizeConnectionAcquireTimeoutError' && typeof (process as any)._getActiveRequests !== 'function'
+    ? (process as any)._getActiveRequests()
+    : undefined
+
+  logger.error('Error in controller.', { err: error, sql, activeRequests })
 
   return res.fail({
     status: err.status || HttpStatusCode.INTERNAL_SERVER_ERROR_500,
@@ -313,9 +325,14 @@ async function startApplication () {
   PeerTubeVersionCheckScheduler.Instance.enable()
   AutoFollowIndexInstances.Instance.enable()
   RemoveDanglingResumableUploadsScheduler.Instance.enable()
+  VideoChannelSyncLatestScheduler.Instance.enable()
   VideoViewsBufferScheduler.Instance.enable()
   GeoIPUpdateScheduler.Instance.enable()
   OpenTelemetryMetrics.Instance.registerMetrics()
+
+  PluginManager.Instance.init(server)
+  // Before PeerTubeSocket init
+  PluginManager.Instance.registerWebSocketRouter()
 
   PeerTubeSocket.Instance.init(server)
   VideoViewsManager.Instance.init()
@@ -330,11 +347,22 @@ async function startApplication () {
   server.listen(port, hostname, async () => {
     if (cliOptions.plugins) {
       try {
+        await PluginManager.Instance.rebuildNativePluginsIfNeeded()
+
         await PluginManager.Instance.registerPluginsAndThemes()
       } catch (err) {
         logger.error('Cannot register plugins and themes.', { err })
       }
     }
+
+    ApplicationModel.updateNodeVersions()
+      .catch(err => logger.error('Cannot update node versions.', { err }))
+
+    JobQueue.Instance.start()
+      .catch(err => {
+        logger.error('Cannot start job queue.', { err })
+        process.exit(-1)
+      })
 
     logger.info('HTTP server listening on %s:%d', hostname, port)
     logger.info('Web server: %s', WEBSERVER.URL)
@@ -346,6 +374,7 @@ async function startApplication () {
 
   process.on('exit', () => {
     JobQueue.Instance.terminate()
+      .catch(err => logger.error('Cannot terminate job queue.', { err }))
   })
 
   process.on('SIGINT', () => process.exit(0))

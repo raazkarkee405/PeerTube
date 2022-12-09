@@ -10,6 +10,11 @@ webserver:
   hostname: 'localhost'
   port: 9000
 
+# Secrets you need to generate the first time you run PeerTube
+secrets:
+  # Generate one using `openssl rand -hex 32`
+  peertube: ''
+
 rates_limit:
   api:
     # 50 attempts in 10 seconds
@@ -27,6 +32,10 @@ rates_limit:
     # 3 attempts in 5 min
     window: 5 minutes
     max: 3
+  receive_client_log:
+    # 10 attempts in 10 min
+    window: 10 minutes
+    max: 10
 
 # Proxies to trust to get real client IP
 # If you run PeerTube just behind a local proxy (nginx), keep 'loopback'
@@ -118,6 +127,7 @@ storage:
   captions: 'storage/captions/'
   cache: 'storage/cache/'
   plugins: 'storage/plugins/'
+  well_known: 'storage/well-known/'
   # Overridable client files in client/dist/assets/images:
   # - logo.svg
   # - favicon.png
@@ -130,6 +140,10 @@ storage:
   # If not, peertube will fallback to the default file
   client_overrides: 'storage/client-overrides/'
 
+static_files:
+  # Require and check user authentication when accessing private files (internal/private video files)
+  private_files_require_auth: true
+
 object_storage:
   enabled: false
 
@@ -138,8 +152,19 @@ object_storage:
 
   region: 'us-east-1'
 
-  # Set this ACL on each uploaded object
-  upload_acl: 'public-read'
+  upload_acl:
+    # Set this ACL on each uploaded object of public/unlisted videos
+    public: 'public-read'
+    # Set this ACL on each uploaded object of private/internal videos
+    # PeerTube can proxify requests to private objects so your users can access them
+    private: 'private'
+
+  proxy:
+    # If private files (private/internal video files) have a private ACL, users can't access directly the ressource
+    # PeerTube can proxify requests between your object storage service and your users
+    # If you disable PeerTube proxy, ensure you use your own proxy that is able to access the private files
+    # Or you can also set a public ACL for private files in object storage if you don't want to use a proxy
+    proxify_private_files: true
 
   credentials:
     # You can also use AWS_ACCESS_KEY_ID env variable
@@ -148,7 +173,7 @@ object_storage:
     secret_access_key: ''
 
   # Maximum amount to upload in one request to object storage
-  max_upload_part: 2GB
+  max_upload_part: 100MB
 
   streaming_playlists:
     bucket_name: 'streaming-playlists'
@@ -168,22 +193,31 @@ object_storage:
 
 log:
   level: 'info' # 'debug' | 'info' | 'warn' | 'error'
+
   rotation:
     enabled : true # Enabled by default, if disabled make sure that 'storage.logs' is pointing to a folder handled by logrotate
     max_file_size: 12MB
     max_files: 20
+
   anonymize_ip: false
+
   log_ping_requests: true
   log_tracker_unknown_infohash: true
+
   prettify_sql: false
 
-# Highly experimental support of Open Telemetry
+  # Accept warn/error logs coming from the client
+  accept_client_log: true
+
+# Support of Open Telemetry metrics and tracing
+# For more information: https://docs.joinpeertube.org/maintain-observability
 open_telemetry:
   metrics:
     enabled: false
 
     # Create a prometheus exporter server on this port so prometheus server can scrape PeerTube metrics
     prometheus_exporter:
+      hostname: '127.0.0.1'
       port: 9091
 
   tracing:
@@ -392,6 +426,9 @@ transcoding:
     1440p: false
     2160p: false
 
+  # Transcode and keep original resolution, even if it's above your maximum enabled resolution
+  always_transcode_original_resolution: true
+
   # Generate videos in a WebTorrent format (what we do since the first PeerTube release)
   # If you also enabled the hls format, it will multiply videos storage by 2
   # If disabled, breaks federation with PeerTube instances < 2.1
@@ -485,6 +522,9 @@ live:
       1440p: false
       2160p: false
 
+    # Also transcode original resolution, even if it's above your maximum enabled resolution
+    always_transcode_original_resolution: true
+
 video_studio:
   # Enable video edition by users (cut, add intro/outro, add watermark etc)
   # If enabled, users can create transcoding tasks as they wish
@@ -528,6 +568,20 @@ import:
       # We recommend to only enable magnet URI/torrent import if you trust your users
       # See https://docs.joinpeertube.org/maintain-configuration?id=security for more information
       enabled: false
+
+  # Add ability for your users to synchronize their channels with external channels, playlists, etc
+  video_channel_synchronization:
+    enabled: false
+
+    max_per_user: 10
+
+    check_interval: 1 hour
+
+    # Number of latest published videos to check and to potentially import when syncing a channel
+    videos_limit_per_synchronization: 10
+
+    # Max number of videos to import when the user asks for full sync
+    full_sync_videos_limit: 1000
 
 auto_blacklist:
   # New videos automatically blacklisted so moderators can review before publishing
@@ -610,7 +664,8 @@ instance:
   robots: |
     User-agent: *
     Disallow:
-  # Security.txt rules. To discourage researchers from testing your instance and disable security.txt integration, set this to an empty string
+  # /.well-known/security.txt rules. This endpoint is cached, so you may have to wait a few hours before viewing your changes
+  # To discourage researchers from testing your instance and disable security.txt integration, set this to an empty string
   securitytxt:
     '# If you would like to report a security issue\n# you may report it to:\nContact: https://github.com/Chocobozzz/PeerTube/blob/develop/SECURITY.md\nContact: mailto:'
 
@@ -675,9 +730,9 @@ search:
     # You should deploy your own with https://framagit.org/framasoft/peertube/search-index,
     # and can use https://search.joinpeertube.org/ for tests, but keep in mind the latter is an unmoderated search index
     url: ''
-    # You can disable local search, so users only use the search index
+    # You can disable local search in the client, so users only use the search index
     disable_local_search: false
-    # If you did not disable local search, you can decide to use the search index by default
+    # If you did not disable local search in the client, you can decide to use the search index by default
     is_default_search: false
 
 # PeerTube client/interface configuration

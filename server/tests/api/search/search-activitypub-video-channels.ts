@@ -1,7 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
 
-import 'mocha'
-import * as chai from 'chai'
+import { expect } from 'chai'
 import { wait } from '@shared/core-utils'
 import { VideoChannel } from '@shared/models'
 import {
@@ -14,8 +13,6 @@ import {
   setDefaultVideoChannel,
   waitJobs
 } from '@shared/server-commands'
-
-const expect = chai.expect
 
 describe('Test ActivityPub video channels search', function () {
   let servers: PeerTubeServer[]
@@ -188,7 +185,7 @@ describe('Test ActivityPub video channels search', function () {
   })
 
   it('Should update video channel of server 2, and refresh it on server 1', async function () {
-    this.timeout(60000)
+    this.timeout(120000)
 
     await servers[1].channels.update({
       token: userServer2Token,
@@ -214,7 +211,7 @@ describe('Test ActivityPub video channels search', function () {
   })
 
   it('Should update and add a video on server 2, and update it on server 1 after a search', async function () {
-    this.timeout(60000)
+    this.timeout(120000)
 
     await servers[1].videos.update({ token: userServer2Token, id: videoServer2UUID, attributes: { name: 'video 1 updated' } })
     await servers[1].videos.upload({ token: userServer2Token, attributes: { name: 'video 2 server 2', channelId: channelIdServer2 } })
@@ -238,7 +235,7 @@ describe('Test ActivityPub video channels search', function () {
   })
 
   it('Should delete video channel of server 2, and delete it on server 1', async function () {
-    this.timeout(60000)
+    this.timeout(120000)
 
     await servers[1].channels.delete({ token: userServer2Token, channelName: 'channel1_server2' })
 

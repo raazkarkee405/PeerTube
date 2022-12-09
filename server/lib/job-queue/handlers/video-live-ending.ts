@@ -1,10 +1,10 @@
-import { Job } from 'bull'
+import { Job } from 'bullmq'
 import { readdir, remove } from 'fs-extra'
 import { join } from 'path'
-import { ffprobePromise, getAudioStream, getVideoStreamDimensionsInfo, getVideoStreamDuration } from '@server/helpers/ffmpeg'
+import { ffprobePromise, getAudioStream, getVideoStreamDimensionsInfo } from '@server/helpers/ffmpeg'
 import { getLocalVideoActivityPubUrl } from '@server/lib/activitypub/url'
 import { federateVideoIfNeeded } from '@server/lib/activitypub/videos'
-import { cleanupPermanentLive, cleanupTMPLiveFiles, cleanupUnsavedNormalLive } from '@server/lib/live'
+import { cleanupAndDestroyPermanentLive, cleanupTMPLiveFiles, cleanupUnsavedNormalLive } from '@server/lib/live'
 import { generateHLSMasterPlaylistFilename, generateHlsSha256SegmentsFilename, getLiveReplayBaseDirectory } from '@server/lib/paths'
 import { generateVideoMiniature } from '@server/lib/thumbnail'
 import { generateHlsPlaylistResolutionFromTS } from '@server/lib/transcoding/transcoding'
@@ -18,6 +18,7 @@ import { VideoStreamingPlaylistModel } from '@server/models/video/video-streamin
 import { MVideo, MVideoLive, MVideoLiveSession, MVideoWithAllFiles } from '@server/types/models'
 import { ThumbnailType, VideoLiveEndingPayload, VideoState } from '@shared/models'
 import { logger, loggerTagsFactory } from '../../../helpers/logger'
+import { VideoPathManager } from '@server/lib/video-path-manager'
 
 const lTags = loggerTagsFactory('live', 'job')
 
@@ -30,26 +31,36 @@ async function processVideoLiveEnding (job: Job) {
     logger.warn('Video live %d does not exist anymore. Cannot process live ending.', payload.videoId, lTags())
   }
 
-  const liveVideo = await VideoModel.load(payload.videoId)
+  const video = await VideoModel.load(payload.videoId)
   const live = await VideoLiveModel.loadByVideoId(payload.videoId)
   const liveSession = await VideoLiveSessionModel.load(payload.liveSessionId)
 
-  if (!liveVideo || !live || !liveSession) {
+  if (!video || !live || !liveSession) {
     logError()
     return
   }
 
-  if (live.saveReplay !== true) {
-    return cleanupLiveAndFederate({ live, video: liveVideo, streamingPlaylistId: payload.streamingPlaylistId })
+  const permanentLive = live.permanentLive
+
+  liveSession.endingProcessed = true
+  await liveSession.save()
+
+  if (liveSession.saveReplay !== true) {
+    return cleanupLiveAndFederate({ permanentLive, video, streamingPlaylistId: payload.streamingPlaylistId })
   }
 
-  if (live.permanentLive) {
-    await saveReplayToExternalVideo({ liveVideo, liveSession, publishedAt: payload.publishedAt, replayDirectory: payload.replayDirectory })
+  if (permanentLive) {
+    await saveReplayToExternalVideo({
+      liveVideo: video,
+      liveSession,
+      publishedAt: payload.publishedAt,
+      replayDirectory: payload.replayDirectory
+    })
 
-    return cleanupLiveAndFederate({ live, video: liveVideo, streamingPlaylistId: payload.streamingPlaylistId })
+    return cleanupLiveAndFederate({ permanentLive, video, streamingPlaylistId: payload.streamingPlaylistId })
   }
 
-  return replaceLiveByReplay({ liveVideo, live, liveSession, replayDirectory: payload.replayDirectory })
+  return replaceLiveByReplay({ video, liveSession, live, permanentLive, replayDirectory: payload.replayDirectory })
 }
 
 // ---------------------------------------------------------------------------
@@ -68,7 +79,7 @@ async function saveReplayToExternalVideo (options: {
 }) {
   const { liveVideo, liveSession, publishedAt, replayDirectory } = options
 
-  const video = new VideoModel({
+  const replayVideo = new VideoModel({
     name: `${liveVideo.name} - ${new Date(publishedAt).toLocaleString()}`,
     isLive: false,
     state: VideoState.TO_TRANSCODE,
@@ -88,65 +99,65 @@ async function saveReplayToExternalVideo (options: {
     channelId: liveVideo.channelId
   }) as MVideoWithAllFiles
 
-  video.Thumbnails = []
-  video.VideoFiles = []
-  video.VideoStreamingPlaylists = []
+  replayVideo.Thumbnails = []
+  replayVideo.VideoFiles = []
+  replayVideo.VideoStreamingPlaylists = []
 
-  video.url = getLocalVideoActivityPubUrl(video)
+  replayVideo.url = getLocalVideoActivityPubUrl(replayVideo)
 
-  await video.save()
+  await replayVideo.save()
 
-  liveSession.replayVideoId = video.id
+  liveSession.replayVideoId = replayVideo.id
   await liveSession.save()
 
   // If live is blacklisted, also blacklist the replay
   const blacklist = await VideoBlacklistModel.loadByVideoId(liveVideo.id)
   if (blacklist) {
     await VideoBlacklistModel.create({
-      videoId: video.id,
+      videoId: replayVideo.id,
       unfederated: blacklist.unfederated,
       reason: blacklist.reason,
       type: blacklist.type
     })
   }
 
-  await assignReplayFilesToVideo({ video, replayDirectory })
+  await assignReplayFilesToVideo({ video: replayVideo, replayDirectory })
 
   await remove(replayDirectory)
 
   for (const type of [ ThumbnailType.MINIATURE, ThumbnailType.PREVIEW ]) {
-    const image = await generateVideoMiniature({ video, videoFile: video.getMaxQualityFile(), type })
-    await video.addAndSaveThumbnail(image)
+    const image = await generateVideoMiniature({ video: replayVideo, videoFile: replayVideo.getMaxQualityFile(), type })
+    await replayVideo.addAndSaveThumbnail(image)
   }
 
-  await moveToNextState({ video, isNewVideo: true })
+  await moveToNextState({ video: replayVideo, isNewVideo: true })
 }
 
 async function replaceLiveByReplay (options: {
-  liveVideo: MVideo
+  video: MVideo
   liveSession: MVideoLiveSession
   live: MVideoLive
+  permanentLive: boolean
   replayDirectory: string
 }) {
-  const { liveVideo, liveSession, live, replayDirectory } = options
+  const { video, liveSession, live, permanentLive, replayDirectory } = options
 
-  await cleanupTMPLiveFiles(liveVideo)
+  const videoWithFiles = await VideoModel.loadFull(video.id)
+  const hlsPlaylist = videoWithFiles.getHLSPlaylist()
+
+  await cleanupTMPLiveFiles(videoWithFiles, hlsPlaylist)
 
   await live.destroy()
 
-  liveVideo.isLive = false
-  liveVideo.waitTranscoding = true
-  liveVideo.state = VideoState.TO_TRANSCODE
+  videoWithFiles.isLive = false
+  videoWithFiles.waitTranscoding = true
+  videoWithFiles.state = VideoState.TO_TRANSCODE
 
-  await liveVideo.save()
+  await videoWithFiles.save()
 
-  liveSession.replayVideoId = liveVideo.id
+  liveSession.replayVideoId = videoWithFiles.id
   await liveSession.save()
 
-  // Remove old HLS playlist video files
-  const videoWithFiles = await VideoModel.loadFull(liveVideo.id)
-
-  const hlsPlaylist = videoWithFiles.getHLSPlaylist()
   await VideoFileModel.removeHLSFilesOfVideoId(hlsPlaylist.id)
 
   // Reset playlist
@@ -157,7 +168,7 @@ async function replaceLiveByReplay (options: {
 
   await assignReplayFilesToVideo({ video: videoWithFiles, replayDirectory })
 
-  if (live.permanentLive) { // Remove session replay
+  if (permanentLive) { // Remove session replay
     await remove(replayDirectory)
   } else { // We won't stream again in this live, we can delete the base replay directory
     await remove(getLiveReplayBaseDirectory(videoWithFiles))
@@ -192,49 +203,47 @@ async function assignReplayFilesToVideo (options: {
 }) {
   const { video, replayDirectory } = options
 
-  let durationDone = false
-
   const concatenatedTsFiles = await readdir(replayDirectory)
 
   for (const concatenatedTsFile of concatenatedTsFiles) {
+    const inputFileMutexReleaser = await VideoPathManager.Instance.lockFiles(video.uuid)
+
     const concatenatedTsFilePath = join(replayDirectory, concatenatedTsFile)
 
     const probe = await ffprobePromise(concatenatedTsFilePath)
     const { audioStream } = await getAudioStream(concatenatedTsFilePath, probe)
+    const { resolution } = await getVideoStreamDimensionsInfo(concatenatedTsFilePath, probe)
 
-    const { resolution, isPortraitMode } = await getVideoStreamDimensionsInfo(concatenatedTsFilePath, probe)
-
-    const { resolutionPlaylistPath: outputPath } = await generateHlsPlaylistResolutionFromTS({
-      video,
-      concatenatedTsFilePath,
-      resolution,
-      isPortraitMode,
-      isAAC: audioStream?.codec_name === 'aac'
-    })
-
-    if (!durationDone) {
-      video.duration = await getVideoStreamDuration(outputPath)
-      await video.save()
-
-      durationDone = true
+    try {
+      await generateHlsPlaylistResolutionFromTS({
+        video,
+        inputFileMutexReleaser,
+        concatenatedTsFilePath,
+        resolution,
+        isAAC: audioStream?.codec_name === 'aac'
+      })
+    } catch (err) {
+      logger.error('Cannot generate HLS playlist resolution from TS files.', { err })
     }
+
+    inputFileMutexReleaser()
   }
 
   return video
 }
 
 async function cleanupLiveAndFederate (options: {
-  live: MVideoLive
   video: MVideo
+  permanentLive: boolean
   streamingPlaylistId: number
 }) {
-  const { live, video, streamingPlaylistId } = options
+  const { permanentLive, video, streamingPlaylistId } = options
 
   const streamingPlaylist = await VideoStreamingPlaylistModel.loadWithVideo(streamingPlaylistId)
 
   if (streamingPlaylist) {
-    if (live.permanentLive) {
-      await cleanupPermanentLive(video, streamingPlaylist)
+    if (permanentLive) {
+      await cleanupAndDestroyPermanentLive(video, streamingPlaylist)
     } else {
       await cleanupUnsavedNormalLive(video, streamingPlaylist)
     }

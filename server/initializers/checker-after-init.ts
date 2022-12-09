@@ -1,7 +1,7 @@
 import config from 'config'
-import { uniq } from 'lodash'
 import { URL } from 'url'
 import { getFFmpegVersion } from '@server/helpers/ffmpeg'
+import { uniqify } from '@shared/core-utils'
 import { VideoRedundancyConfigFilter } from '@shared/models/redundancy/video-redundancy-config-filter.type'
 import { RecentlyAddedStrategy } from '../../shared/models/redundancy'
 import { isProdInstance, parseSemVersion } from '../helpers/core-utils'
@@ -42,12 +42,14 @@ function checkConfig () {
     logger.warn('services.csp-logger configuration has been renamed to csp.report_uri. Please update your configuration file.')
   }
 
+  checkSecretsConfig()
   checkEmailConfig()
   checkNSFWPolicyConfig()
   checkLocalRedundancyConfig()
   checkRemoteRedundancyConfig()
   checkStorageConfig()
   checkTranscodingConfig()
+  checkImportConfig()
   checkBroadcastMessageConfig()
   checkSearchConfig()
   checkLiveConfig()
@@ -78,10 +80,14 @@ async function applicationExist () {
 
 async function checkFFmpegVersion () {
   const version = await getFFmpegVersion()
-  const { major, minor } = parseSemVersion(version)
+  const { major, minor, patch } = parseSemVersion(version)
 
   if (major < 4 || (major === 4 && minor < 1)) {
-    logger.warn('Your ffmpeg version (%s) is outdated. PeerTube supports ffmpeg >= 4.1. Please upgrade.', version)
+    logger.warn('Your ffmpeg version (%s) is outdated. PeerTube supports ffmpeg >= 4.1. Please upgrade ffmpeg.', version)
+  }
+
+  if (major === 4 && minor === 4 && patch === 0) {
+    logger.warn('There is a bug in ffmpeg 4.4.0 with HLS videos. Please upgrade ffmpeg.')
   }
 }
 
@@ -97,6 +103,12 @@ export {
 }
 
 // ---------------------------------------------------------------------------
+
+function checkSecretsConfig () {
+  if (!CONFIG.SECRETS.PEERTUBE) {
+    throw new Error('secrets.peertube is missing in config. Generate one using `openssl rand -hex 32`')
+  }
+}
 
 function checkEmailConfig () {
   if (!isEmailEnabled()) {
@@ -136,7 +148,7 @@ function checkLocalRedundancyConfig () {
       }
     }
 
-    const filtered = uniq(redundancyVideos.map(r => r.strategy))
+    const filtered = uniqify(redundancyVideos.map(r => r.strategy))
     if (filtered.length !== redundancyVideos.length) {
       throw new Error('Redundancy video entries should have unique strategies')
     }
@@ -193,6 +205,12 @@ function checkTranscodingConfig () {
     if (CONFIG.IMPORT.VIDEOS.CONCURRENCY <= 0) {
       throw new Error('Video import concurrency should be > 0')
     }
+  }
+}
+
+function checkImportConfig () {
+  if (CONFIG.IMPORT.VIDEO_CHANNEL_SYNCHRONIZATION.ENABLED && !CONFIG.IMPORT.VIDEOS.HTTP) {
+    throw new Error('You need to enable HTTP import to allow synchronization')
   }
 }
 
@@ -259,6 +277,14 @@ function checkObjectStorageConfig () {
       throw new Error(
         'Object storage bucket prefixes should be set to different values when the same bucket is used for both types of video.'
       )
+    }
+
+    if (!CONFIG.OBJECT_STORAGE.UPLOAD_ACL.PUBLIC) {
+      throw new Error('object_storage.upload_acl.public must be set')
+    }
+
+    if (!CONFIG.OBJECT_STORAGE.UPLOAD_ACL.PRIVATE) {
+      throw new Error('object_storage.upload_acl.private must be set')
     }
   }
 }

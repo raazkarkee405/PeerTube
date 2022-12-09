@@ -1,20 +1,21 @@
 import { FfprobeData } from 'fluent-ffmpeg'
 import { getMaxBitrate } from '@shared/core-utils'
 import {
+  buildFileMetadata,
   ffprobePromise,
   getAudioStream,
-  getVideoStreamDuration,
   getMaxAudioBitrate,
-  buildFileMetadata,
-  getVideoStreamBitrate,
-  getVideoStreamFPS,
   getVideoStream,
+  getVideoStreamBitrate,
   getVideoStreamDimensionsInfo,
+  getVideoStreamDuration,
+  getVideoStreamFPS,
   hasAudioStream
 } from '@shared/extra-utils/ffprobe'
 import { VideoResolution, VideoTranscodingFPS } from '@shared/models'
 import { CONFIG } from '../../initializers/config'
 import { VIDEO_TRANSCODING_FPS } from '../../initializers/constants'
+import { toEven } from '../core-utils'
 import { logger } from '../logger'
 
 /**
@@ -56,16 +57,17 @@ async function getVideoStreamCodec (path: string) {
   }
 
   if (videoCodec === 'av01') {
-    const level = videoStream.level
+    let level = videoStream.level.toString()
+    if (level.length === 1) level = `0${level}`
 
     // Guess the tier indicator and bit depth
     return `${videoCodec}.${baseProfile}.${level}M.08`
   }
 
-  // Default, h264 codec
   let level = videoStream.level.toString(16)
   if (level.length === 1) level = `0${level}`
 
+  // Default, h264 codec
   return `${videoCodec}.${baseProfile}${level}`
 }
 
@@ -90,15 +92,23 @@ async function getAudioStreamCodec (path: string, existingProbe?: FfprobeData) {
 // Resolutions
 // ---------------------------------------------------------------------------
 
-function computeLowerResolutionsToTranscode (videoFileResolution: number, type: 'vod' | 'live') {
+function computeResolutionsToTranscode (options: {
+  input: number
+  type: 'vod' | 'live'
+  includeInput: boolean
+  strictLower: boolean
+  hasAudio: boolean
+}) {
+  const { input, type, includeInput, strictLower, hasAudio } = options
+
   const configResolutions = type === 'vod'
     ? CONFIG.TRANSCODING.RESOLUTIONS
     : CONFIG.LIVE.TRANSCODING.RESOLUTIONS
 
-  const resolutionsEnabled: number[] = []
+  const resolutionsEnabled = new Set<number>()
 
   // Put in the order we want to proceed jobs
-  const resolutions: VideoResolution[] = [
+  const availableResolutions: VideoResolution[] = [
     VideoResolution.H_NOVIDEO,
     VideoResolution.H_480P,
     VideoResolution.H_360P,
@@ -110,13 +120,25 @@ function computeLowerResolutionsToTranscode (videoFileResolution: number, type: 
     VideoResolution.H_4K
   ]
 
-  for (const resolution of resolutions) {
-    if (configResolutions[resolution + 'p'] === true && videoFileResolution > resolution) {
-      resolutionsEnabled.push(resolution)
-    }
+  for (const resolution of availableResolutions) {
+    // Resolution not enabled
+    if (configResolutions[resolution + 'p'] !== true) continue
+    // Too big resolution for input file
+    if (input < resolution) continue
+    // We only want lower resolutions than input file
+    if (strictLower && input === resolution) continue
+    // Audio resolutio but no audio in the video
+    if (resolution === VideoResolution.H_NOVIDEO && !hasAudio) continue
+
+    resolutionsEnabled.add(resolution)
   }
 
-  return resolutionsEnabled
+  if (includeInput) {
+    // Always use an even resolution to avoid issues with ffmpeg
+    resolutionsEnabled.add(toEven(input))
+  }
+
+  return Array.from(resolutionsEnabled)
 }
 
 // ---------------------------------------------------------------------------
@@ -147,7 +169,7 @@ async function canDoQuickAudioTranscode (path: string, probe?: FfprobeData): Pro
 
   const channelLayout = parsedAudio.audioStream['channel_layout']
   // Causes playback issues with Chrome
-  if (!channelLayout || channelLayout === 'unknown') return false
+  if (!channelLayout || channelLayout === 'unknown' || channelLayout === 'quad') return false
 
   return true
 }
@@ -224,7 +246,7 @@ export {
   computeFPS,
   getClosestFramerateStandard,
 
-  computeLowerResolutionsToTranscode,
+  computeResolutionsToTranscode,
 
   canDoQuickTranscode,
   canDoQuickVideoTranscode,

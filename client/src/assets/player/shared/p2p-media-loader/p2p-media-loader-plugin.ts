@@ -2,7 +2,8 @@ import Hlsjs from 'hls.js'
 import videojs from 'video.js'
 import { Events, Segment } from '@peertube/p2p-media-loader-core'
 import { Engine, initHlsJsPlayer, initVideoJsContribHlsJsPlayer } from '@peertube/p2p-media-loader-hlsjs'
-import { timeToInt } from '@shared/core-utils'
+import { logger } from '@root-helpers/logger'
+import { addQueryParams, timeToInt } from '@shared/core-utils'
 import { P2PMediaLoaderPluginOptions, PlayerNetworkInfo } from '../../types'
 import { registerConfigPlugin, registerSourceHandler } from './hls-plugin'
 
@@ -28,9 +29,7 @@ class P2pMediaLoaderPlugin extends Plugin {
   }
   private statsHTTPBytes = {
     pendingDownload: [] as number[],
-    pendingUpload: [] as number[],
-    totalDownload: 0,
-    totalUpload: 0
+    totalDownload: 0
   }
   private startTime: number
 
@@ -40,28 +39,37 @@ class P2pMediaLoaderPlugin extends Plugin {
     super(player)
 
     this.options = options
+    this.startTime = timeToInt(options.startTime)
 
     // FIXME: typings https://github.com/Microsoft/TypeScript/issues/14080
     if (!(videojs as any).Html5Hlsjs) {
-      console.warn('HLS.js does not seem to be supported. Try to fallback to built in HLS.')
-
-      if (!player.canPlayType('application/vnd.apple.mpegurl')) {
-        const message = 'Cannot fallback to built-in HLS'
-        console.warn(message)
-
-        player.ready(() => player.trigger('error', new Error(message)))
+      if (player.canPlayType('application/vnd.apple.mpegurl')) {
+        this.fallbackToBuiltInIOS()
         return
       }
-    } else {
-      // FIXME: typings https://github.com/Microsoft/TypeScript/issues/14080
-      (videojs as any).Html5Hlsjs.addHook('beforeinitialize', (videojsPlayer: any, hlsjs: any) => {
-        this.hlsjs = hlsjs
-      })
 
-      initVideoJsContribHlsJsPlayer(player)
+      const message = 'HLS.js does not seem to be supported. Cannot fallback to built-in HLS'
+      logger.warn(message)
+
+      const error: MediaError = {
+        code: MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED,
+        message,
+        MEDIA_ERR_ABORTED: MediaError.MEDIA_ERR_ABORTED,
+        MEDIA_ERR_DECODE: MediaError.MEDIA_ERR_DECODE,
+        MEDIA_ERR_NETWORK: MediaError.MEDIA_ERR_NETWORK,
+        MEDIA_ERR_SRC_NOT_SUPPORTED: MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
+      }
+
+      player.ready(() => player.error(error))
+      return
     }
 
-    this.startTime = timeToInt(options.startTime)
+    // FIXME: typings https://github.com/Microsoft/TypeScript/issues/14080
+    (videojs as any).Html5Hlsjs.addHook('beforeinitialize', (_videojsPlayer: any, hlsjs: any) => {
+      this.hlsjs = hlsjs
+    })
+
+    initVideoJsContribHlsJsPlayer(player)
 
     player.src({
       type: options.type,
@@ -71,9 +79,7 @@ class P2pMediaLoaderPlugin extends Plugin {
     player.ready(() => {
       this.initializeCore()
 
-      if ((videojs as any).Html5Hlsjs) {
-        this.initializePlugin()
-      }
+      this.initializePlugin()
     })
   }
 
@@ -85,6 +91,8 @@ class P2pMediaLoaderPlugin extends Plugin {
   }
 
   getCurrentLevel () {
+    if (!this.hlsjs) return undefined
+
     return this.hlsjs.levels[this.hlsjs.currentLevel]
   }
 
@@ -114,7 +122,9 @@ class P2pMediaLoaderPlugin extends Plugin {
     this.p2pEngine = this.options.loader.getEngine()
 
     this.p2pEngine.on(Events.SegmentError, (segment: Segment, err) => {
-      console.error('Segment error.', segment, err)
+      if (navigator.onLine === false) return
+
+      logger.error(`Segment ${segment.id} error.`, err)
 
       this.options.redundancyUrlManager.removeBySegmentUrl(segment.requestUrl)
     })
@@ -122,6 +132,8 @@ class P2pMediaLoaderPlugin extends Plugin {
     this.statsP2PBytes.numPeers = 1 + this.options.redundancyUrlManager.countBaseUrls()
 
     this.runStats()
+
+    this.hlsjs.on(Hlsjs.Events.LEVEL_SWITCHED, () => this.player.trigger('engineResolutionChange'))
   }
 
   private runStats () {
@@ -133,10 +145,13 @@ class P2pMediaLoaderPlugin extends Plugin {
     })
 
     this.p2pEngine.on(Events.PieceBytesUploaded, (method: string, _segment, bytes: number) => {
-      const elem = method === 'p2p' ? this.statsP2PBytes : this.statsHTTPBytes
+      if (method !== 'p2p') {
+        logger.error(`Received upload from unknown method ${method}`)
+        return
+      }
 
-      elem.pendingUpload.push(bytes)
-      elem.totalUpload += bytes
+      this.statsP2PBytes.pendingUpload.push(bytes)
+      this.statsP2PBytes.totalUpload += bytes
     })
 
     this.p2pEngine.on(Events.PeerConnect, () => this.statsP2PBytes.numPeers++)
@@ -147,20 +162,16 @@ class P2pMediaLoaderPlugin extends Plugin {
       const p2pUploadSpeed = this.arraySum(this.statsP2PBytes.pendingUpload)
 
       const httpDownloadSpeed = this.arraySum(this.statsHTTPBytes.pendingDownload)
-      const httpUploadSpeed = this.arraySum(this.statsHTTPBytes.pendingUpload)
 
       this.statsP2PBytes.pendingDownload = []
       this.statsP2PBytes.pendingUpload = []
       this.statsHTTPBytes.pendingDownload = []
-      this.statsHTTPBytes.pendingUpload = []
 
       return this.player.trigger('p2pInfo', {
         source: 'p2p-media-loader',
         http: {
           downloadSpeed: httpDownloadSpeed,
-          uploadSpeed: httpUploadSpeed,
-          downloaded: this.statsHTTPBytes.totalDownload,
-          uploaded: this.statsHTTPBytes.totalUpload
+          downloaded: this.statsHTTPBytes.totalDownload
         },
         p2p: {
           downloadSpeed: p2pDownloadSpeed,
@@ -176,6 +187,25 @@ class P2pMediaLoaderPlugin extends Plugin {
 
   private arraySum (data: number[]) {
     return data.reduce((a: number, b: number) => a + b, 0)
+  }
+
+  private fallbackToBuiltInIOS () {
+    logger.info('HLS.js does not seem to be supported. Fallback to built-in HLS.');
+
+    // Workaround to force video.js to not re create a video element
+    (this.player as any).playerElIngest_ = this.player.el().parentNode
+
+    this.player.src({
+      type: this.options.type,
+      src: addQueryParams(this.options.src, {
+        videoFileToken: this.options.videoFileToken(),
+        reinjectVideoFileToken: 'true'
+      })
+    })
+
+    this.player.ready(() => {
+      this.initializeCore()
+    })
   }
 }
 

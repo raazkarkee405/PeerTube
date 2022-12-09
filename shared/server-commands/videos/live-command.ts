@@ -1,9 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
 
 import { readdir } from 'fs-extra'
-import { omit } from 'lodash'
 import { join } from 'path'
-import { wait } from '@shared/core-utils'
+import { omit, wait } from '@shared/core-utils'
 import {
   HttpStatusCode,
   LiveVideo,
@@ -13,9 +12,11 @@ import {
   ResultList,
   VideoCreateResult,
   VideoDetails,
+  VideoPrivacy,
   VideoState
 } from '@shared/models'
 import { unwrapBody } from '../requests'
+import { ObjectStorageCommand, PeerTubeServer } from '../server'
 import { AbstractCommand, OverrideCommandOptions } from '../shared'
 import { sendRTMPStream, testFfmpegStreamError } from './live'
 
@@ -34,6 +35,8 @@ export class LiveCommand extends AbstractCommand {
       defaultExpectedStatus: HttpStatusCode.OK_200
     })
   }
+
+  // ---------------------------------------------------------------------------
 
   listSessions (options: OverrideCommandOptions & {
     videoId: number | string
@@ -71,6 +74,8 @@ export class LiveCommand extends AbstractCommand {
     })
   }
 
+  // ---------------------------------------------------------------------------
+
   update (options: OverrideCommandOptions & {
     videoId: number | string
     fields: LiveVideoUpdate
@@ -103,13 +108,40 @@ export class LiveCommand extends AbstractCommand {
 
       path,
       attaches,
-      fields: omit(fields, 'thumbnailfile', 'previewfile'),
+      fields: omit(fields, [ 'thumbnailfile', 'previewfile' ]),
       implicitToken: true,
       defaultExpectedStatus: HttpStatusCode.OK_200
     }))
 
     return body.video
   }
+
+  async quickCreate (options: OverrideCommandOptions & {
+    saveReplay: boolean
+    permanentLive: boolean
+    privacy?: VideoPrivacy
+  }) {
+    const { saveReplay, permanentLive, privacy } = options
+
+    const { uuid } = await this.create({
+      ...options,
+
+      fields: {
+        name: 'live',
+        permanentLive,
+        saveReplay,
+        channelId: this.server.store.channel.id,
+        privacy
+      }
+    })
+
+    const video = await this.server.videos.getWithToken({ id: uuid })
+    const live = await this.get({ videoId: uuid })
+
+    return { video, live }
+  }
+
+  // ---------------------------------------------------------------------------
 
   async sendRTMPStreamInVideo (options: OverrideCommandOptions & {
     videoId: number | string
@@ -130,6 +162,8 @@ export class LiveCommand extends AbstractCommand {
 
     return testFfmpegStreamError(command, options.shouldHaveError)
   }
+
+  // ---------------------------------------------------------------------------
 
   waitUntilPublished (options: OverrideCommandOptions & {
     videoId: number | string
@@ -152,35 +186,47 @@ export class LiveCommand extends AbstractCommand {
     return this.waitUntilState({ videoId, state: VideoState.LIVE_ENDED })
   }
 
-  waitUntilSegmentGeneration (options: OverrideCommandOptions & {
+  async waitUntilSegmentGeneration (options: OverrideCommandOptions & {
+    server: PeerTubeServer
     videoUUID: string
     playlistNumber: number
     segment: number
-    totalSessions?: number
+    objectStorage: boolean
   }) {
-    const { playlistNumber, segment, videoUUID, totalSessions = 1 } = options
-    const segmentName = `${playlistNumber}-00000${segment}.ts`
-
-    return this.server.servers.waitUntilLog(`${videoUUID}/${segmentName}`, totalSessions * 2, false)
-  }
-
-  getSegment (options: OverrideCommandOptions & {
-    videoUUID: string
-    playlistNumber: number
-    segment: number
-  }) {
-    const { playlistNumber, segment, videoUUID } = options
+    const { server, objectStorage, playlistNumber, segment, videoUUID } = options
 
     const segmentName = `${playlistNumber}-00000${segment}.ts`
-    const url = `${this.server.url}/static/streaming-playlists/hls/${videoUUID}/${segmentName}`
+    const baseUrl = objectStorage
+      ? ObjectStorageCommand.getMockPlaylistBaseUrl() + 'hls'
+      : server.url + '/static/streaming-playlists/hls'
 
-    return this.getRawRequest({
-      ...options,
+    let error = true
 
-      url,
-      implicitToken: false,
-      defaultExpectedStatus: HttpStatusCode.OK_200
-    })
+    while (error) {
+      try {
+        await this.getRawRequest({
+          ...options,
+
+          url: `${baseUrl}/${videoUUID}/${segmentName}`,
+          implicitToken: false,
+          defaultExpectedStatus: HttpStatusCode.OK_200
+        })
+
+        const video = await server.videos.get({ id: videoUUID })
+        const hlsPlaylist = video.streamingPlaylists[0]
+
+        const shaBody = await server.streamingPlaylists.getSegmentSha256({ url: hlsPlaylist.segmentsSha256Url })
+
+        if (!shaBody[segmentName]) {
+          throw new Error('Segment SHA does not exist')
+        }
+
+        error = false
+      } catch {
+        error = true
+        await wait(100)
+      }
+    }
   }
 
   async waitUntilReplacedByReplay (options: OverrideCommandOptions & {
@@ -194,6 +240,56 @@ export class LiveCommand extends AbstractCommand {
       await wait(500)
     } while (video.isLive === true || video.state.id !== VideoState.PUBLISHED)
   }
+
+  // ---------------------------------------------------------------------------
+
+  getSegmentFile (options: OverrideCommandOptions & {
+    videoUUID: string
+    playlistNumber: number
+    segment: number
+    objectStorage?: boolean // default false
+  }) {
+    const { playlistNumber, segment, videoUUID, objectStorage = false } = options
+
+    const segmentName = `${playlistNumber}-00000${segment}.ts`
+    const baseUrl = objectStorage
+      ? ObjectStorageCommand.getMockPlaylistBaseUrl()
+      : `${this.server.url}/static/streaming-playlists/hls`
+
+    const url = `${baseUrl}/${videoUUID}/${segmentName}`
+
+    return this.getRawRequest({
+      ...options,
+
+      url,
+      implicitToken: false,
+      defaultExpectedStatus: HttpStatusCode.OK_200
+    })
+  }
+
+  getPlaylistFile (options: OverrideCommandOptions & {
+    videoUUID: string
+    playlistName: string
+    objectStorage?: boolean // default false
+  }) {
+    const { playlistName, videoUUID, objectStorage = false } = options
+
+    const baseUrl = objectStorage
+      ? ObjectStorageCommand.getMockPlaylistBaseUrl()
+      : `${this.server.url}/static/streaming-playlists/hls`
+
+    const url = `${baseUrl}/${videoUUID}/${playlistName}`
+
+    return this.getRawRequest({
+      ...options,
+
+      url,
+      implicitToken: false,
+      defaultExpectedStatus: HttpStatusCode.OK_200
+    })
+  }
+
+  // ---------------------------------------------------------------------------
 
   async countPlaylists (options: OverrideCommandOptions & {
     videoUUID: string

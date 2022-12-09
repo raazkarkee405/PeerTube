@@ -3,6 +3,7 @@
 
 import Hlsjs, { ErrorData, HlsConfig, Level, LevelSwitchingData, ManifestParsedData } from 'hls.js'
 import videojs from 'video.js'
+import { logger } from '@root-helpers/logger'
 import { HlsjsConfigHandlerOptions, PeerTubeResolution, VideoJSTechHLS } from '../../types'
 
 type ErrorCounts = {
@@ -17,14 +18,14 @@ type HookFn = (player: videojs.Player, hljs: Hlsjs) => void
 
 const registerSourceHandler = function (vjs: typeof videojs) {
   if (!Hlsjs.isSupported()) {
-    console.warn('Hls.js is not supported in this browser!')
+    logger.warn('Hls.js is not supported in this browser!')
     return
   }
 
   const html5 = vjs.getTech('Html5')
 
   if (!html5) {
-    console.error('No Hml5 tech found in videojs')
+    logger.error('No Hml5 tech found in videojs')
     return
   }
 
@@ -120,7 +121,7 @@ class Html5Hlsjs {
 
       if (!mediaError) return
 
-      console.log(mediaError)
+      logger.info(mediaError)
       switch (mediaError.code) {
         case mediaError.MEDIA_ERR_ABORTED:
           errorTxt = 'You aborted the video playback'
@@ -141,7 +142,7 @@ class Html5Hlsjs {
           errorTxt = mediaError.message
       }
 
-      console.error('MEDIA_ERROR: ', errorTxt)
+      logger.error(`MEDIA_ERROR: ${errorTxt}`)
     })
 
     this.initialize()
@@ -210,31 +211,52 @@ class Html5Hlsjs {
     }
   }
 
+  private _getHumanErrorMsg (error: { message: string, code?: number }) {
+    switch (error.code) {
+      default:
+        return error.message
+    }
+  }
+
+  private _handleUnrecovarableError (error: any) {
+    if (this.hls.levels.filter(l => l.id > -1).length > 1) {
+      this._removeQuality(this.hls.loadLevel)
+      return
+    }
+
+    this.hls.destroy()
+    logger.info('bubbling error up to VIDEOJS')
+    this.tech.error = () => ({
+      ...error,
+      message: this._getHumanErrorMsg(error)
+    })
+    this.tech.trigger('error')
+  }
+
   private _handleMediaError (error: any) {
     if (this.errorCounts[Hlsjs.ErrorTypes.MEDIA_ERROR] === 1) {
-      console.info('trying to recover media error')
+      logger.info('trying to recover media error')
       this.hls.recoverMediaError()
       return
     }
 
     if (this.errorCounts[Hlsjs.ErrorTypes.MEDIA_ERROR] === 2) {
-      console.info('2nd try to recover media error (by swapping audio codec')
+      logger.info('2nd try to recover media error (by swapping audio codec')
       this.hls.swapAudioCodec()
       this.hls.recoverMediaError()
       return
     }
 
     if (this.errorCounts[Hlsjs.ErrorTypes.MEDIA_ERROR] > 2) {
-      console.info('bubbling media error up to VIDEOJS')
-      this.hls.destroy()
-      this.tech.error = () => error
-      this.tech.trigger('error')
+      this._handleUnrecovarableError(error)
     }
   }
 
   private _handleNetworkError (error: any) {
+    if (navigator.onLine === false) return
+
     if (this.errorCounts[Hlsjs.ErrorTypes.NETWORK_ERROR] <= this.maxNetworkErrorRecovery) {
-      console.info('trying to recover network error')
+      logger.info('trying to recover network error')
 
       // Wait 1 second and retry
       setTimeout(() => this.hls.startLoad(), 1000)
@@ -247,10 +269,7 @@ class Html5Hlsjs {
       return
     }
 
-    console.info('bubbling network error up to VIDEOJS')
-    this.hls.destroy()
-    this.tech.error = () => error
-    this.tech.trigger('error')
+    this._handleUnrecovarableError(error)
   }
 
   private _onError (_event: any, data: ErrorData) {
@@ -262,8 +281,8 @@ class Html5Hlsjs {
     if (this.errorCounts[data.type]) this.errorCounts[data.type] += 1
     else this.errorCounts[data.type] = 1
 
-    if (data.fatal) console.warn(error.message)
-    else console.error(error.message, data)
+    if (data.fatal) logger.warn(error.message)
+    else logger.error(error.message, { data })
 
     if (data.type === Hlsjs.ErrorTypes.NETWORK_ERROR) {
       error.code = 2
@@ -272,10 +291,7 @@ class Html5Hlsjs {
       error.code = 3
       this._handleMediaError(error)
     } else if (data.fatal) {
-      this.hls.destroy()
-      console.info('bubbling error up to VIDEOJS')
-      this.tech.error = () => error as any
-      this.tech.trigger('error')
+      this._handleUnrecovarableError(error)
     }
   }
 
@@ -289,6 +305,12 @@ class Html5Hlsjs {
     if (level.bitrate) return (level.bitrate / 1000) + 'kbps'
 
     return '0'
+  }
+
+  private _removeQuality (index: number) {
+    this.hls.removeLevel(index)
+    this.player.peertubeResolutions().remove(index)
+    this.hls.currentLevel = -1
   }
 
   private _notifyVideoQualities () {

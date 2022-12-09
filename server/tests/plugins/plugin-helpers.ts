@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
 
-import 'mocha'
 import { expect } from 'chai'
 import { pathExists } from 'fs-extra'
 import { HttpStatusCode, ThumbnailType } from '@shared/models'
@@ -84,6 +83,33 @@ describe('Test plugin helpers', function () {
     })
   })
 
+  describe('Socket', function () {
+
+    it('Should sendNotification without any exceptions', async () => {
+      const user = await servers[0].users.create({ username: 'notis_redding', password: 'secret1234?' })
+      await makePostBodyRequest({
+        url: servers[0].url,
+        path: '/plugins/test-four/router/send-notification',
+        fields: {
+          userId: user.id
+        },
+        expectedStatus: HttpStatusCode.CREATED_201
+      })
+    })
+
+    it('Should sendVideoLiveNewState without any exceptions', async () => {
+      const res = await servers[0].videos.quickUpload({ name: 'video server 1' })
+
+      await makePostBodyRequest({
+        url: servers[0].url,
+        path: '/plugins/test-four/router/send-video-live-new-state/' + res.uuid,
+        expectedStatus: HttpStatusCode.CREATED_201
+      })
+
+      await servers[0].videos.remove({ id: res.uuid })
+    })
+  })
+
   describe('Plugin', function () {
 
     it('Should get the base static route', async function () {
@@ -110,6 +136,7 @@ describe('Test plugin helpers', function () {
   })
 
   describe('User', function () {
+    let rootId: number
 
     it('Should not get a user if not authenticated', async function () {
       await makeGetRequest({
@@ -132,6 +159,28 @@ describe('Test plugin helpers', function () {
       expect(res.body.isAdmin).to.be.true
       expect(res.body.isModerator).to.be.false
       expect(res.body.isUser).to.be.false
+
+      rootId = res.body.id
+    })
+
+    it('Should load a user by id', async function () {
+      {
+        const res = await makeGetRequest({
+          url: servers[0].url,
+          path: '/plugins/test-four/router/user/' + rootId,
+          expectedStatus: HttpStatusCode.OK_200
+        })
+
+        expect(res.body.username).to.equal('root')
+      }
+
+      {
+        await makeGetRequest({
+          url: servers[0].url,
+          path: '/plugins/test-four/router/user/42',
+          expectedStatus: HttpStatusCode.NOT_FOUND_404
+        })
+      }
     })
   })
 
@@ -258,7 +307,7 @@ describe('Test plugin helpers', function () {
             expect(file.fps).to.equal(25)
 
             expect(await pathExists(file.path)).to.be.true
-            await makeRawRequest(file.url, HttpStatusCode.OK_200)
+            await makeRawRequest({ url: file.url, expectedStatus: HttpStatusCode.OK_200 })
           }
         }
 
@@ -272,12 +321,12 @@ describe('Test plugin helpers', function () {
         const miniature = body.thumbnails.find(t => t.type === ThumbnailType.MINIATURE)
         expect(miniature).to.exist
         expect(await pathExists(miniature.path)).to.be.true
-        await makeRawRequest(miniature.url, HttpStatusCode.OK_200)
+        await makeRawRequest({ url: miniature.url, expectedStatus: HttpStatusCode.OK_200 })
 
         const preview = body.thumbnails.find(t => t.type === ThumbnailType.PREVIEW)
         expect(preview).to.exist
         expect(await pathExists(preview.path)).to.be.true
-        await makeRawRequest(preview.url, HttpStatusCode.OK_200)
+        await makeRawRequest({ url: preview.url, expectedStatus: HttpStatusCode.OK_200 })
       }
     })
 

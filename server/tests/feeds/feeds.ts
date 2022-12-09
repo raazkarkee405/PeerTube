@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
 
-import 'mocha'
 import * as chai from 'chai'
 import { XMLParser, XMLValidator } from 'fast-xml-parser'
 import { HttpStatusCode, VideoPrivacy } from '@shared/models'
@@ -10,6 +9,7 @@ import {
   createSingleServer,
   doubleFollow,
   makeGetRequest,
+  makeRawRequest,
   PeerTubeServer,
   setAccessTokensToServers,
   setDefaultChannelAvatar,
@@ -20,6 +20,7 @@ import {
 chai.use(require('chai-xml'))
 chai.use(require('chai-json-schema'))
 chai.config.includeStack = true
+
 const expect = chai.expect
 
 describe('Test syndication feeds', () => {
@@ -306,6 +307,15 @@ describe('Test syndication feeds', () => {
 
       await stopFfmpeg(ffmpeg)
     })
+
+    it('Should have the channel avatar as feed icon', async function () {
+      const json = await servers[0].feed.getJSON({ feed: 'videos', query: { videoChannelId: rootChannelId }, ignoreCache: true })
+
+      const jsonObj = JSON.parse(json)
+      const imageUrl = jsonObj.icon
+      expect(imageUrl).to.include('/lazy-static/avatars/')
+      await makeRawRequest({ url: imageUrl, expectedStatus: HttpStatusCode.OK_200 })
+    })
   })
 
   describe('Video comments feed', function () {
@@ -433,7 +443,7 @@ describe('Test syndication feeds', () => {
 
       {
         const body = await servers[0].subscriptions.listVideos({ token: userAccessToken })
-        expect(body.total).to.equal(2, "there should be 2 videos part of the subscription")
+        expect(body.total).to.equal(2, 'there should be 2 videos part of the subscription')
 
         const query = { accountId: userAccountId, token: userFeedToken }
         const json = await servers[0].feed.getJSON({ feed: 'subscriptions', query, ignoreCache: true })

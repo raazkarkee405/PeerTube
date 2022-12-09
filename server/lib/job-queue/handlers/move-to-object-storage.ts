@@ -1,12 +1,12 @@
-import { Job } from 'bull'
+import { Job } from 'bullmq'
 import { remove } from 'fs-extra'
 import { join } from 'path'
 import { logger, loggerTagsFactory } from '@server/helpers/logger'
 import { updateTorrentMetadata } from '@server/helpers/webtorrent'
-import { CONFIG } from '@server/initializers/config'
 import { P2P_MEDIA_LOADER_PEER_VERSION } from '@server/initializers/constants'
-import { storeHLSFile, storeWebTorrentFile } from '@server/lib/object-storage'
+import { storeHLSFileFromFilename, storeWebTorrentFile } from '@server/lib/object-storage'
 import { getHLSDirectory, getHlsResolutionPlaylistFilename } from '@server/lib/paths'
+import { VideoPathManager } from '@server/lib/video-path-manager'
 import { moveToFailedMoveToObjectStorageState, moveToNextState } from '@server/lib/video-state'
 import { VideoModel } from '@server/models/video/video'
 import { VideoJobInfoModel } from '@server/models/video/video-job-info'
@@ -17,7 +17,7 @@ const lTagsBase = loggerTagsFactory('move-object-storage')
 
 export async function processMoveToObjectStorage (job: Job) {
   const payload = job.data as MoveObjectStoragePayload
-  logger.info('Moving video %s in job %d.', payload.videoUUID, job.id)
+  logger.info('Moving video %s in job %s.', payload.videoUUID, job.id)
 
   const video = await VideoModel.loadWithFiles(payload.videoUUID)
   // No video, maybe deleted?
@@ -27,6 +27,8 @@ export async function processMoveToObjectStorage (job: Job) {
   }
 
   const lTags = lTagsBase(video.uuid, video.url)
+
+  const fileMutexReleaser = await VideoPathManager.Instance.lockFiles(video.uuid)
 
   try {
     if (video.VideoFiles) {
@@ -43,12 +45,16 @@ export async function processMoveToObjectStorage (job: Job) {
 
     const pendingMove = await VideoJobInfoModel.decrease(video.uuid, 'pendingMove')
     if (pendingMove === 0) {
-      logger.info('Running cleanup after moving files to object storage (video %s in job %d)', video.uuid, job.id, lTags)
+      logger.info('Running cleanup after moving files to object storage (video %s in job %s)', video.uuid, job.id, lTags)
 
       await doAfterLastJob({ video, previousVideoState: payload.previousVideoState, isNewVideo: payload.isNewVideo })
     }
   } catch (err) {
     await onMoveToObjectStorageFailure(job, err)
+
+    throw err
+  } finally {
+    fileMutexReleaser()
   }
 
   return payload.videoUUID
@@ -72,9 +78,9 @@ async function moveWebTorrentFiles (video: MVideoWithAllFiles) {
   for (const file of video.VideoFiles) {
     if (file.storage !== VideoStorage.FILE_SYSTEM) continue
 
-    const fileUrl = await storeWebTorrentFile(file.filename)
+    const fileUrl = await storeWebTorrentFile(video, file)
 
-    const oldPath = join(CONFIG.STORAGE.VIDEOS_DIR, file.filename)
+    const oldPath = VideoPathManager.Instance.getFSVideoFileOutputPath(video, file)
     await onFileMoved({ videoOrPlaylist: video, file, fileUrl, oldPath })
   }
 }
@@ -88,10 +94,10 @@ async function moveHLSFiles (video: MVideoWithAllFiles) {
 
       // Resolution playlist
       const playlistFilename = getHlsResolutionPlaylistFilename(file.filename)
-      await storeHLSFile(playlistWithVideo, playlistFilename)
+      await storeHLSFileFromFilename(playlistWithVideo, playlistFilename)
 
       // Resolution fragmented file
-      const fileUrl = await storeHLSFile(playlistWithVideo, file.filename)
+      const fileUrl = await storeHLSFileFromFilename(playlistWithVideo, file.filename)
 
       const oldPath = join(getHLSDirectory(video), file.filename)
 
@@ -113,9 +119,9 @@ async function doAfterLastJob (options: {
     const playlistWithVideo = playlist.withVideo(video)
 
     // Master playlist
-    playlist.playlistUrl = await storeHLSFile(playlistWithVideo, playlist.playlistFilename)
+    playlist.playlistUrl = await storeHLSFileFromFilename(playlistWithVideo, playlist.playlistFilename)
     // Sha256 segments file
-    playlist.segmentsSha256Url = await storeHLSFile(playlistWithVideo, playlist.segmentsSha256Filename)
+    playlist.segmentsSha256Url = await storeHLSFileFromFilename(playlistWithVideo, playlist.segmentsSha256Filename)
 
     playlist.storage = VideoStorage.OBJECT_STORAGE
 

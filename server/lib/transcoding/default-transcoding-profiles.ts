@@ -49,7 +49,7 @@ const defaultX264LiveOptionsBuilder: EncoderOptionsBuilder = (options: EncoderOp
 
   return {
     outputOptions: [
-      ...getCommonOutputOptions(targetBitrate),
+      ...getCommonOutputOptions(targetBitrate, streamNum),
 
       `${buildStreamSuffix('-r:v', streamNum)} ${fps}`,
       `${buildStreamSuffix('-b:v', streamNum)} ${targetBitrate}`
@@ -76,11 +76,14 @@ const defaultAACOptionsBuilder: EncoderOptionsBuilder = async ({ input, streamNu
 
   logger.debug('Calculating audio bitrate of %s by AAC encoder.', input, { bitrate: parsedAudio.bitrate, audioCodecName })
 
+  // Force stereo as it causes some issues with HLS playback in Chrome
+  const base = [ '-channel_layout', 'stereo' ]
+
   if (bitrate !== -1) {
-    return { outputOptions: [ buildStreamSuffix('-b:a', streamNum), bitrate + 'k' ] }
+    return { outputOptions: base.concat([ buildStreamSuffix('-b:a', streamNum), bitrate + 'k' ]) }
   }
 
-  return { outputOptions: [ ] }
+  return { outputOptions: base }
 }
 
 const defaultLibFDKAACVODOptionsBuilder: EncoderOptionsBuilder = ({ streamNum }) => {
@@ -271,11 +274,11 @@ function capBitrate (inputBitrate: number, targetBitrate: number) {
   return Math.min(targetBitrate, inputBitrateWithMargin)
 }
 
-function getCommonOutputOptions (targetBitrate: number) {
+function getCommonOutputOptions (targetBitrate: number, streamNum?: number) {
   return [
     `-preset veryfast`,
-    `-maxrate ${targetBitrate}`,
-    `-bufsize ${targetBitrate * 2}`,
+    `${buildStreamSuffix('-maxrate:v', streamNum)} ${targetBitrate}`,
+    `${buildStreamSuffix('-bufsize:v', streamNum)} ${targetBitrate * 2}`,
 
     // NOTE: b-strategy 1 - heuristic algorithm, 16 is optimal B-frames for it
     `-b_strategy 1`,

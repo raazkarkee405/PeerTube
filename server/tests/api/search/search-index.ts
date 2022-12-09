@@ -1,8 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
 
-import 'mocha'
-import * as chai from 'chai'
-import { cleanupTests, createSingleServer, PeerTubeServer, SearchCommand, setAccessTokensToServers } from '@shared/server-commands'
+import { expect } from 'chai'
 import {
   BooleanBothQuery,
   VideoChannelsSearchQuery,
@@ -11,8 +9,7 @@ import {
   VideoPlaylistType,
   VideosSearchQuery
 } from '@shared/models'
-
-const expect = chai.expect
+import { cleanupTests, createSingleServer, PeerTubeServer, SearchCommand, setAccessTokensToServers } from '@shared/server-commands'
 
 describe('Test index search', function () {
   const localVideoName = 'local video' + new Date().toISOString()
@@ -81,28 +78,6 @@ describe('Test index search', function () {
     })
 
     it('Should make an index channels search by default', async function () {
-      const body = await command.searchChannels({ search: 'root' })
-      expect(body.total).to.be.greaterThan(2)
-    })
-
-    it('Should make an index videos search if local search is disabled', async function () {
-      await server.config.updateCustomSubConfig({
-        newConfig: {
-          search: {
-            searchIndex: {
-              enabled: true,
-              isDefaultSearch: false,
-              disableLocalSearch: true
-            }
-          }
-        }
-      })
-
-      const body = await command.searchVideos({ search: 'local video' })
-      expect(body.total).to.be.greaterThan(2)
-    })
-
-    it('Should make an index channels search if local search is disabled', async function () {
       const body = await command.searchChannels({ search: 'root' })
       expect(body.total).to.be.greaterThan(2)
     })

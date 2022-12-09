@@ -1,12 +1,11 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
 
-import 'mocha'
-import * as chai from 'chai'
+import { expect } from 'chai'
 import { readdir } from 'fs-extra'
 import magnetUtil from 'magnet-uri'
 import { basename, join } from 'path'
 import { checkSegmentHash, checkVideoFilesWereRemoved, saveVideoInServers } from '@server/tests/shared'
-import { root, wait } from '@shared/core-utils'
+import { wait } from '@shared/core-utils'
 import {
   HttpStatusCode,
   VideoDetails,
@@ -26,8 +25,6 @@ import {
   waitJobs
 } from '@shared/server-commands'
 
-const expect = chai.expect
-
 let servers: PeerTubeServer[] = []
 let video1Server2: VideoDetails
 
@@ -42,7 +39,7 @@ async function checkMagnetWebseeds (file: VideoFile, baseWebseeds: string[], ser
   expect(parsed.urlList).to.have.lengthOf(baseWebseeds.length)
 
   for (const url of parsed.urlList) {
-    await makeRawRequest(url, HttpStatusCode.OK_200)
+    await makeRawRequest({ url, expectedStatus: HttpStatusCode.OK_200 })
   }
 }
 
@@ -128,7 +125,7 @@ async function check1WebSeed (videoUUID?: string) {
   if (!videoUUID) videoUUID = video1Server2.uuid
 
   const webseeds = [
-    `http://localhost:${servers[1].port}/static/webseed/`
+    `${servers[1].url}/static/webseed/`
   ]
 
   for (const server of servers) {
@@ -147,8 +144,8 @@ async function check2Webseeds (videoUUID?: string) {
   if (!videoUUID) videoUUID = video1Server2.uuid
 
   const webseeds = [
-    `http://localhost:${servers[0].port}/static/redundancy/`,
-    `http://localhost:${servers[1].port}/static/webseed/`
+    `${servers[0].url}/static/redundancy/`,
+    `${servers[1].url}/static/webseed/`
   ]
 
   for (const server of servers) {
@@ -162,12 +159,12 @@ async function check2Webseeds (videoUUID?: string) {
   const { webtorrentFilenames } = await ensureSameFilenames(videoUUID)
 
   const directories = [
-    'test' + servers[0].internalServerNumber + '/redundancy',
-    'test' + servers[1].internalServerNumber + '/videos'
+    servers[0].getDirectoryPath('redundancy'),
+    servers[1].getDirectoryPath('videos')
   ]
 
   for (const directory of directories) {
-    const files = await readdir(join(root(), directory))
+    const files = await readdir(directory)
     expect(files).to.have.length.at.least(4)
 
     // Ensure we files exist on disk
@@ -217,12 +214,12 @@ async function check1PlaylistRedundancies (videoUUID?: string) {
   const { hlsFilenames } = await ensureSameFilenames(videoUUID)
 
   const directories = [
-    'test' + servers[0].internalServerNumber + '/redundancy/hls',
-    'test' + servers[1].internalServerNumber + '/streaming-playlists/hls'
+    servers[0].getDirectoryPath('redundancy/hls'),
+    servers[1].getDirectoryPath('streaming-playlists/hls')
   ]
 
   for (const directory of directories) {
-    const files = await readdir(join(root(), directory, videoUUID))
+    const files = await readdir(join(directory, videoUUID))
     expect(files).to.have.length.at.least(4)
 
     // Ensure we files exist on disk

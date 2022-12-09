@@ -1,15 +1,15 @@
 import { Subscription } from 'rxjs'
 import { HttpErrorResponse } from '@angular/common/http'
-import { Component, OnDestroy, OnInit } from '@angular/core'
-import { ActivatedRoute, Router } from '@angular/router'
-import { AuthService, Notifier, RedirectService, ServerService } from '@app/core'
+import { AfterViewInit, Component, OnDestroy, OnInit } from '@angular/core'
+import { ActivatedRoute } from '@angular/router'
+import { AuthService, HooksService, Notifier, RedirectService, ServerService } from '@app/core'
 import { genericUploadErrorHandler } from '@app/helpers'
 import {
   VIDEO_CHANNEL_DESCRIPTION_VALIDATOR,
   VIDEO_CHANNEL_DISPLAY_NAME_VALIDATOR,
   VIDEO_CHANNEL_SUPPORT_VALIDATOR
 } from '@app/shared/form-validators/video-channel-validators'
-import { FormValidatorService } from '@app/shared/shared-forms'
+import { FormReactiveService } from '@app/shared/shared-forms'
 import { VideoChannel, VideoChannelService } from '@app/shared/shared-main'
 import { HTMLServerConfig, VideoChannelUpdate } from '@shared/models'
 import { VideoChannelEdit } from './video-channel-edit'
@@ -19,7 +19,7 @@ import { VideoChannelEdit } from './video-channel-edit'
   templateUrl: './video-channel-edit.component.html',
   styleUrls: [ './video-channel-edit.component.scss' ]
 })
-export class VideoChannelUpdateComponent extends VideoChannelEdit implements OnInit, OnDestroy {
+export class VideoChannelUpdateComponent extends VideoChannelEdit implements OnInit, AfterViewInit, OnDestroy {
   error: string
   videoChannel: VideoChannel
 
@@ -28,14 +28,14 @@ export class VideoChannelUpdateComponent extends VideoChannelEdit implements OnI
   private serverConfig: HTMLServerConfig
 
   constructor (
-    protected formValidatorService: FormValidatorService,
+    protected formReactiveService: FormReactiveService,
     private authService: AuthService,
     private notifier: Notifier,
-    private router: Router,
     private route: ActivatedRoute,
     private videoChannelService: VideoChannelService,
     private serverService: ServerService,
-    private redirectService: RedirectService
+    private redirectService: RedirectService,
+    private hooks: HooksService
   ) {
     super()
   }
@@ -58,6 +58,8 @@ export class VideoChannelUpdateComponent extends VideoChannelEdit implements OnI
           next: videoChannelToUpdate => {
             this.videoChannel = videoChannelToUpdate
 
+            this.hooks.runAction('action:video-channel-update.video-channel.loaded', 'video-channel', { videoChannel: this.videoChannel })
+
             this.oldSupportField = videoChannelToUpdate.support
 
             this.form.patchValue({
@@ -72,6 +74,10 @@ export class VideoChannelUpdateComponent extends VideoChannelEdit implements OnI
           }
         })
     })
+  }
+
+  ngAfterViewInit () {
+    this.hooks.runAction('action:video-channel-update.init', 'video-channel')
   }
 
   ngOnDestroy () {

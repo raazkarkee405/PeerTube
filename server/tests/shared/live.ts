@@ -3,39 +3,118 @@
 import { expect } from 'chai'
 import { pathExists, readdir } from 'fs-extra'
 import { join } from 'path'
-import { LiveVideo } from '@shared/models'
-import { PeerTubeServer } from '@shared/server-commands'
+import { LiveVideo, VideoStreamingPlaylistType } from '@shared/models'
+import { ObjectStorageCommand, PeerTubeServer } from '@shared/server-commands'
+import { checkLiveSegmentHash, checkResolutionsInMasterPlaylist } from './streaming-playlists'
 
-async function checkLiveCleanup (server: PeerTubeServer, videoUUID: string, savedResolutions: number[] = []) {
-  let live: LiveVideo
-
-  try {
-    live = await server.live.get({ videoId: videoUUID })
-  } catch {}
+async function checkLiveCleanup (options: {
+  server: PeerTubeServer
+  videoUUID: string
+  permanent: boolean
+  savedResolutions?: number[]
+}) {
+  const { server, videoUUID, permanent, savedResolutions = [] } = options
 
   const basePath = server.servers.buildDirectory('streaming-playlists')
   const hlsPath = join(basePath, 'hls', videoUUID)
 
-  if (savedResolutions.length === 0) {
+  if (permanent) {
+    if (!await pathExists(hlsPath)) return
 
-    if (live?.permanentLive) {
-      expect(await pathExists(hlsPath)).to.be.true
-
-      const hlsFiles = await readdir(hlsPath)
-      expect(hlsFiles).to.have.lengthOf(1) // Only replays directory
-
-      const replayDir = join(hlsPath, 'replay')
-      expect(await pathExists(replayDir)).to.be.true
-
-      const replayFiles = await readdir(join(hlsPath, 'replay'))
-      expect(replayFiles).to.have.lengthOf(0)
-    } else {
-      expect(await pathExists(hlsPath)).to.be.false
-    }
-
+    const files = await readdir(hlsPath)
+    expect(files).to.have.lengthOf(0)
     return
   }
 
+  if (savedResolutions.length === 0) {
+    return checkUnsavedLiveCleanup(server, videoUUID, hlsPath)
+  }
+
+  return checkSavedLiveCleanup(hlsPath, savedResolutions)
+}
+
+// ---------------------------------------------------------------------------
+
+async function testVideoResolutions (options: {
+  originServer: PeerTubeServer
+  servers: PeerTubeServer[]
+  liveVideoId: string
+  resolutions: number[]
+  transcoded: boolean
+  objectStorage: boolean
+}) {
+  const { originServer, servers, liveVideoId, resolutions, transcoded, objectStorage } = options
+
+  for (const server of servers) {
+    const { data } = await server.videos.list()
+    expect(data.find(v => v.uuid === liveVideoId)).to.exist
+
+    const video = await server.videos.get({ id: liveVideoId })
+    expect(video.streamingPlaylists).to.have.lengthOf(1)
+
+    const hlsPlaylist = video.streamingPlaylists.find(s => s.type === VideoStreamingPlaylistType.HLS)
+    expect(hlsPlaylist).to.exist
+    expect(hlsPlaylist.files).to.have.lengthOf(0) // Only fragmented mp4 files are displayed
+
+    await checkResolutionsInMasterPlaylist({
+      server,
+      playlistUrl: hlsPlaylist.playlistUrl,
+      resolutions,
+      transcoded,
+      withRetry: objectStorage
+    })
+
+    if (objectStorage) {
+      expect(hlsPlaylist.playlistUrl).to.contain(ObjectStorageCommand.getMockPlaylistBaseUrl())
+    }
+
+    for (let i = 0; i < resolutions.length; i++) {
+      const segmentNum = 3
+      const segmentName = `${i}-00000${segmentNum}.ts`
+      await originServer.live.waitUntilSegmentGeneration({
+        server: originServer,
+        videoUUID: video.uuid,
+        playlistNumber: i,
+        segment: segmentNum,
+        objectStorage
+      })
+
+      const baseUrl = objectStorage
+        ? ObjectStorageCommand.getMockPlaylistBaseUrl() + 'hls'
+        : originServer.url + '/static/streaming-playlists/hls'
+
+      if (objectStorage) {
+        expect(hlsPlaylist.segmentsSha256Url).to.contain(ObjectStorageCommand.getMockPlaylistBaseUrl())
+      }
+
+      const subPlaylist = await originServer.streamingPlaylists.get({
+        url: `${baseUrl}/${video.uuid}/${i}.m3u8`,
+        withRetry: objectStorage // With object storage, the request may fail because of inconsistent data in S3
+      })
+
+      expect(subPlaylist).to.contain(segmentName)
+
+      await checkLiveSegmentHash({
+        server,
+        baseUrlSegment: baseUrl,
+        videoUUID: video.uuid,
+        segmentName,
+        hlsPlaylist
+      })
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+
+export {
+  checkLiveCleanup,
+  testVideoResolutions
+}
+
+// ---------------------------------------------------------------------------
+
+async function checkSavedLiveCleanup (hlsPath: string, savedResolutions: number[] = []) {
   const files = await readdir(hlsPath)
 
   // fragmented file and playlist per resolution + master playlist + segments sha256 json file
@@ -56,6 +135,27 @@ async function checkLiveCleanup (server: PeerTubeServer, videoUUID: string, save
   expect(shaFile).to.exist
 }
 
-export {
-  checkLiveCleanup
+async function checkUnsavedLiveCleanup (server: PeerTubeServer, videoUUID: string, hlsPath: string) {
+  let live: LiveVideo
+
+  try {
+    live = await server.live.get({ videoId: videoUUID })
+  } catch {}
+
+  if (live?.permanentLive) {
+    expect(await pathExists(hlsPath)).to.be.true
+
+    const hlsFiles = await readdir(hlsPath)
+    expect(hlsFiles).to.have.lengthOf(1) // Only replays directory
+
+    const replayDir = join(hlsPath, 'replay')
+    expect(await pathExists(replayDir)).to.be.true
+
+    const replayFiles = await readdir(join(hlsPath, 'replay'))
+    expect(replayFiles).to.have.lengthOf(0)
+
+    return
+  }
+
+  expect(await pathExists(hlsPath)).to.be.false
 }

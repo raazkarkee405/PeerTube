@@ -1,17 +1,15 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions,@typescript-eslint/require-await */
 
-import 'mocha'
-import * as chai from 'chai'
-import { omit } from 'lodash'
+import { expect } from 'chai'
 import { canDoQuickTranscode } from '@server/helpers/ffmpeg'
-import { generateHighBitrateVideo, generateVideoWithFramerate, getAllFiles } from '@server/tests/shared'
-import { buildAbsoluteFixturePath, getMaxBitrate, getMinLimitBitrate } from '@shared/core-utils'
+import { generateHighBitrateVideo, generateVideoWithFramerate } from '@server/tests/shared'
+import { buildAbsoluteFixturePath, getAllFiles, getMaxBitrate, getMinLimitBitrate, omit } from '@shared/core-utils'
 import {
-  getAudioStream,
   buildFileMetadata,
+  getAudioStream,
   getVideoStreamBitrate,
-  getVideoStreamFPS,
   getVideoStreamDimensionsInfo,
+  getVideoStreamFPS,
   hasAudioStream
 } from '@shared/extra-utils'
 import { HttpStatusCode, VideoState } from '@shared/models'
@@ -25,8 +23,6 @@ import {
   waitJobs,
   webtorrentAdd
 } from '@shared/server-commands'
-
-const expect = chai.expect
 
 function updateConfigForTranscoding (server: PeerTubeServer) {
   return server.config.updateCustomSubConfig({
@@ -724,6 +720,82 @@ describe('Test video transcoding', function () {
         expect(j.priority).to.be.greaterThan(100)
         expect(j.priority).to.be.lessThan(150)
       }
+    })
+  })
+
+  describe('Bounded transcoding', function () {
+
+    it('Should not generate an upper resolution than original file', async function () {
+      this.timeout(120_000)
+
+      await servers[0].config.updateExistingSubConfig({
+        newConfig: {
+          transcoding: {
+            enabled: true,
+            hls: { enabled: true },
+            webtorrent: { enabled: true },
+            resolutions: {
+              '0p': false,
+              '144p': false,
+              '240p': true,
+              '360p': false,
+              '480p': true,
+              '720p': false,
+              '1080p': false,
+              '1440p': false,
+              '2160p': false
+            },
+            alwaysTranscodeOriginalResolution: false
+          }
+        }
+      })
+
+      const { uuid } = await servers[0].videos.quickUpload({ name: 'video', fixture: 'video_short.webm' })
+      await waitJobs(servers)
+
+      const video = await servers[0].videos.get({ id: uuid })
+      const hlsFiles = video.streamingPlaylists[0].files
+
+      expect(video.files).to.have.lengthOf(2)
+      expect(hlsFiles).to.have.lengthOf(2)
+
+      // eslint-disable-next-line @typescript-eslint/require-array-sort-compare
+      const resolutions = getAllFiles(video).map(f => f.resolution.id).sort()
+      expect(resolutions).to.deep.equal([ 240, 240, 480, 480 ])
+    })
+
+    it('Should only keep the original resolution if all resolutions are disabled', async function () {
+      this.timeout(120_000)
+
+      await servers[0].config.updateExistingSubConfig({
+        newConfig: {
+          transcoding: {
+            resolutions: {
+              '0p': false,
+              '144p': false,
+              '240p': false,
+              '360p': false,
+              '480p': false,
+              '720p': false,
+              '1080p': false,
+              '1440p': false,
+              '2160p': false
+            }
+          }
+        }
+      })
+
+      const { uuid } = await servers[0].videos.quickUpload({ name: 'video', fixture: 'video_short.webm' })
+      await waitJobs(servers)
+
+      const video = await servers[0].videos.get({ id: uuid })
+      const hlsFiles = video.streamingPlaylists[0].files
+
+      expect(video.files).to.have.lengthOf(1)
+      expect(hlsFiles).to.have.lengthOf(1)
+
+      expect(video.files[0].resolution.id).to.equal(720)
+      expect(hlsFiles[0].resolution.id).to.equal(720)
     })
   })
 
